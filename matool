@@ -1,0 +1,1074 @@
+#!/usr/bin/python3
+
+"""
+matool is a tool for remotely preparing, editing and checking
+ma and mi files for slocum gliders. matool is the clien to the
+ma_edit_server that runs on the dockserver. The client can be 
+configured to talk to the server directly or through tunnels to
+navigate through a firewall.
+
+In the case of tunneling, matool can be configured to set up the
+tunnels automatically (linux only). 
+
+matool is expected to be invoked with command line arguments. If
+none are found, a simplistic UI is presented, mainly for the use 
+on windows where it is a bit complicated to provide cli arguments.
+
+Licensed under GPL, see the file COPYRIGHT
+
+Lucas Merckelbach lucas.merckelbach@hzg.de
+31 May 2011, Gulf of Biscay
+"""
+
+import matools.ma_edit as ma_edit
+from matools import xmlprotocol
+from matools import __VERSION__
+import sys
+import configparser
+from optparse import OptionParser
+from configparser import NoSectionError, NoOptionError
+import os
+from time import sleep, ctime
+import difflib
+
+COMMANDS=["edit","show","queue","list","delete","log","diff","import",
+          "export","gliders","xml","ls","help","menu","m","quit","q",
+          "missionlog"]
+
+if sys.platform.startswith("linux"):
+    from matools import ma_linux as ma_os
+else:
+    from matools import ma_windows as ma_os
+
+class MatoolError(Exception):
+    pass
+
+def ls():
+    ''' returns all ma and mi files '''
+    fns=os.listdir('.')
+    r=[f for f in fns if f.lower().endswith('ma') or f.lower().endswith('mi')]
+    return r
+
+# setting default host and port number where ma_edit_server lives
+Defaults={'host':'141.4.10.47', 
+          'port':9000}
+    
+Help = {'general':"""
+Available commands:
+
+edit     import
+show     export
+queue    ls    
+list     help  
+delete   menu  
+log      quit     
+diff     gliders
+xml      missionlog
+
+Options:
+    -s,--viassh <hostname>
+         Builds up a connection via ssh
+
+For more detailed help use:
+
+     help [command]
+
+""", 'edit':"""
+Command edit
+
+     edit <filename> <glider> [author]
+
+Edits <filename> for <glider> by [author]. When finished editing, 
+the option is given to proceed or not. If proceeded, then the 
+edited file is uploaded in the 'to-glider' directory, otherwise the
+edit action is cancelled.
+
+Note to remove a file scheduled for uploading, use the 'delete' 
+command, as removing the file manually from the 'to-glider' directory
+will be considered as the glider successfully uploaded the file.
+""",'delete':"""
+Commmand delete
+
+    delete <filename> <glider>
+
+Removes <filename> from the 'to-glider' directory of glider <glider>.
+This effectively cancels the 'edit' action.
+""",'queue':"""
+Command queue
+
+     queue [glider]
+
+Shows a list of files that are scheduled for uploading to the glider. 
+If a glider name is given, only the files for this glider are shown,
+otherwise all scheduled files are listed.
+""",'list':"""
+Command list
+
+    list <glider>
+
+Lists all files currently known in the repository. If a file is marked
+with a *, then it is not known what the contents is of the corresponding
+file on the glider. I.e., the file has not been uploaded yet.
+""",'current':"""
+Command show
+
+    show <current|queue> <filename> <glider>
+    show log <glider>
+    show missionlog
+
+current:
+  Shows the contents of the latest file that has been uploaded to the 
+  glider, i.e. the contents of the file that should be active on the
+  glider.
+
+queue:
+  Shows the contens of the file that is queued for uploading to the glider.
+
+log:
+  Shows the log file for specified glider
+
+
+missionlog:
+  Shows the mission general log
+
+""",'ls':"""
+Command ls
+
+    ls
+
+Lists all ma and mi files in the current directory.
+""", 'import':"""
+Command import
+
+     import [[[filename] filename] ...] <glider> 
+
+imports given filenames for <glider>. If no filename(s) are given, 
+all filenames ending with ma or mi found in the current directory are
+imported.
+""",'export':"""
+Command export
+
+    export <current|queue> <filename|*> <glider>
+
+current:
+  Saves the contents of the latest file that has been uploaded to the 
+  glider, i.e. the contents of the file that should be active on the
+  glider, to the local directory.
+
+queue:
+  Saves the contenst of the file that is queued for uploading to the glider
+  to the local directory.
+""", 'log':"""
+Command log
+
+    log <glider> [author]
+
+Opens an editor with the log file for given glider. This log file can be edited
+with remarks and comments. Upon saving and quitting the editor, the log file on
+the server is updated.
+""",'diff':"""
+to do
+""",'gliders':"""
+Command gliders
+
+Displays a list of all gliders known to this dockserver.
+""",'xml':"""
+Command xml
+
+    xml scripts
+        displays a numbered list of scripts known to this dockserver
+
+    xml start <script| number> <glider>
+        loads and starts a xml script for glider <glider>. The xml script
+        can be identified with the script name, in which case the 
+        corresponding xml script from the USER directory is run, or, the
+        script can be identified with a number, according to the output of 
+        xml scripts.
+
+    xml stop <glider>
+        stops the current active script for glider <glider>
+
+    xml show <glider>
+        displays the active script for glider <glider>, if any.
+
+    CAVEAT: it is possible to queue scripts. It is the responsibility
+            for the user to make sure that before a script is started,
+            no other script is running, unless it is intended of course. 
+
+""",'missionlog':"""
+Command missionlog
+
+    Opens an editor to enter mission general comments.
+"""
+}
+# definition of a base class. Specific classes inherit this class.
+# the class implements the dummy methods run() parse_remaining_args() and help()
+# These methods should be overriden by the specific class methods.
+
+
+class Configurator(object):
+    def __init__(self):
+        self.user = ma_os.User
+        if not os.path.exists(ma_os.ConfigPath):
+            sys.stderr.write("Found no configuration file %s. Creating one with default settings.\n"%(ma_os.ConfigPath))
+            self.write_config_defaults()
+
+    def write_config_defaults(self):
+        config = configparser.SafeConfigParser()
+        config.add_section('Network')
+        config.set('Network','host',Defaults['host'])
+        config.set('Network','port',"%d"%(Defaults['port']))
+        config.add_section('Ssh')
+        config.add_section(self.user)
+        config.set(self.user,'editor',ma_os.DefaultEditor)
+        fd=open(ma_os.ConfigPath,'w')
+        config.write(fd)
+        fd.close()
+
+    def read_config(self):
+        # do some configuration stuff
+        config = configparser.SafeConfigParser(Defaults)
+        config.read(ma_os.ConfigPath)
+        self.host = config.get('Network','host')
+        self.port = config.getint('Network','port')
+        try:
+            try:
+                self.gracetime = config.getint('Ssh','gracetime')
+            except NoOptionError:
+                self.gracetime=300
+            try:
+                self.sshserver=config.get('Ssh','server')
+            except NoOptionError:
+                self.sshserver='none'
+            try:
+                self.port_local = config.getint('Ssh','localport')
+            except NoOptionError:
+                self.port_local=self.port
+            try:
+                self.user_ssh = config.get('Ssh','username')
+            except NoOptionError:
+                self.user_ssh=self.user
+
+        except NoSectionError:
+            self.gracetime=0
+            self.sshserver='none'
+            self.port_local=self.port
+            self.user_ssh=None
+        try:
+            self.editor = config.get(self.user,'editor')
+        except NoSectionError or NoOptionError:
+                self.editor=ma_os.DefaultEditor
+        self.configuration={'host':self.host,
+                            'port':self.port,
+                            'port_local':self.port_local,
+                            'gracetime':self.gracetime,
+                            'user':self.user,
+                            'editor':self.editor,
+                            'sshserver':self.sshserver,
+                            'user_ssh':self.user_ssh,
+                            'gliders':[]}
+        return self.configuration
+
+class BaseAction(object):
+    def __init__(self,args,options,configuration,client_options=[]):
+        self.host=configuration['host']
+        self.port=configuration['port']
+        self.gracetime=configuration['gracetime']
+        self.port_local=configuration['port_local']
+        self.user=configuration['user']
+        self.editor=configuration['editor']
+        sshserver=configuration['sshserver']
+        sshuser=configuration['user_ssh']
+        self.client_options=client_options
+        self.result=None
+        self.client=None
+        self.gliders=configuration['gliders']
+        # if help is requested, show that and nothing more.
+        if not self.check_for_help(args):
+            self.tunnel_agent=None
+            if options.sshserver or sshserver.lower()!='none':
+                if options.sshserver:
+                    sshhost=options.sshserver
+                else:
+                    sshhost=sshserver
+                self.setup_tunnel_agent(sshhost,sshuser,
+                                        self.gracetime)
+            self.parse_remaining_args(args)
+            self.result=self.run()
+
+    def check_glider_presence(self,glider):
+        n=len(glider)
+        lg=None
+        for i in range(n):
+            c=0
+            for g in self.gliders:
+                k=int(glider.startswith(g[:i+1]))
+                if k:
+                    lg=g
+                c+=k
+            if c==1:
+                break
+        return bool(lg),lg
+
+    def set_glider(self,glider):
+        if glider!='mission':
+            r,self.glider=self.check_glider_presence(glider)
+            if not r:
+                raise ValueError("Unknown glider %s"%glider)
+
+    def askToContinue(self,txt):
+        ans = input(txt)
+        while not ans in ['y','Y','n','N']:
+            ans = input(txt)
+        return ans in ['y','Y']
+
+    def parse_remaining_args(self,args):
+        """dummy method"""
+
+
+    def run(self):
+        """dummy method"""
+
+
+    def help(self):
+        "print general help"
+
+    def check_connection(self):
+        ''' checks connection with server'''
+        # if no connection with server is found, this can be that
+        # a tunnel needs to be (re)setup. If still not available then
+        # throw an error.
+        R=self.client.checkServerStatus()
+        if not R[0]:
+           if self.tunnel_agent:
+               print("(Re)Setting up ssh tunnel")
+               self.tunnel_agent.connect()
+               R=self.client.checkServerStatus()
+               if not R[0]:
+                   raise MatoolError('Server not available.')
+               elif not float(R[1])>=float(R[2]):
+                   raise MatoolError('Server has version V%s, but client requires version V%s'%(R[1],R[2]))
+           else:
+               raise MatoolError('Server not available!')
+        if not float(R[1])>=float(R[2]):
+            raise MatoolError('Server has version V%s, but client requires version V%s'%(R[1],R[2]))
+        return True
+
+    def errorMesg(self,code):
+        ''' convert a error code to human understandable sequences of characters'''
+        msg = [xmlprotocol.ERRORMESG[2**i] for i in range(12) if 2**i&code]
+        return msg
+
+    def check_for_help(self,args):
+        ''' returns true and displays help when help is requested'''
+        if args and args[0]=='help':
+            self.help()
+            return True
+        else:
+            return False
+            
+    def setup_tunnel_agent(self,hostname,username,gracetime):
+        ''' setting up a tunnel_agent (ssh) that handles the connection via
+            a ssh server. The grace time determines how long forwarded ports
+            should remain alive.
+        '''
+        ma_server=self.host
+        self.host='localhost'
+        self.tunnel_agent=ma_os.TunnelAgent(hostname,
+                                            username,
+                                            self.port_local,
+                                            ma_server,
+                                            self.port,
+                                            gracetime)
+                                            
+
+class MaEdit(BaseAction):
+    ''' A class subclassed from BaseAction to edit ma/mi files'''
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)<2:
+            self.help()
+            raise MatoolError('Parsing error!')
+        if args[0]=="rev":
+            args.pop(0)
+            self.revision=args.pop(0)
+        else:
+            self.revision=None
+        self.glider = args[1]
+        self.filename = args[0]
+        # if the author is specified, update self.user
+        if len(args)==3:
+            self.user = args[2]
+        print("Debug self.user:",self.user)
+        
+    def run(self):
+        self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Edit_Client(self.glider,
+                                             self.filename,
+                                             self.revision,
+                                             self.user,
+                                             self.host,
+                                             self.port)
+        self.check_connection()
+        r,revision = self.client.edit(self.editor)
+        self.current_revision=revision
+        msg=self.errorMesg(r)
+        for m in msg:
+            sys.stdout.write("%s\n"%(m))
+        return r&1 # returns 1 if "accept" is part of the error code.
+
+    def help(self):
+        ''' print help'''
+        print(Help['edit'])
+
+class MaLog(BaseAction):
+    ''' A class subclassed from BaseAction to edit log files'''
+    def __init__(self,args,options,cf,initial_text="",optional_info=""):
+        BaseAction.__init__(self,args,options,cf,client_options=[initial_text,optional_info])
+
+    def parse_remaining_args(self,args):
+        if len(args)<1:
+            self.help()
+            raise MatoolError('Parsing error!')
+        self.glider = args[0]
+        # if the author is specified, update self.user
+        if len(args)==2:
+            self.user = args[1]
+
+    def run(self):
+        self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Edit_Log_Client(self.glider,
+                                                 self.user,
+                                                 self.host,
+                                                 self.port,
+                                                 self.client_options)
+        self.check_connection()
+        r,revision = self.client.edit(self.editor)
+        msg=self.errorMesg(r)
+        for m in msg:
+            print(m)
+
+    def help(self):
+        ''' print help'''
+        print(Help['log'])
+
+class MissionLog(MaLog):
+    ''' A class subclassed from BaseAction to edit log files'''
+    def __init__(self,args,options,cf,initial_text="",optional_info=""):
+        MaLog.__init__(self,args,options,cf,initial_text,optional_info)
+
+    def parse_remaining_args(self,args):
+        if len(args)>1:
+            self.help()
+            raise MatoolError('Parsing error!')
+        elif len(args)==1:
+            self.user = args[0]
+
+    def run(self):
+        self.client = ma_edit.Ma_Edit_Log_Client("mission",
+                                                 self.user,
+                                                 self.host,
+                                                 self.port,
+                                                 self.client_options)
+        self.check_connection()
+        r,revision = self.client.edit(self.editor)
+        msg=self.errorMesg(r)
+        for m in msg:
+            print(m)
+
+    def help(self):
+        ''' print help'''
+        print(Help['missionlog [author]'])
+
+
+class MaImport(BaseAction):
+    ''' A class subclassed from BaseAction to import ma/mi files
+        from local directory.'''
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)<1:
+            self.help()
+            raise MatoolError('Parsing error!')
+        if len(args)==1:
+            self.glider = args[0]
+            self.filenames = ls()
+        else:
+            self.filenames=args[0:-1]
+            self.glider = args[-1]
+
+    def run(self):
+        self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Edit_Import(self.glider,
+                                             self.user,
+                                             self.host,
+                                             self.port)
+        self.check_connection()
+        for f in self.filenames:
+            print("About to import %s..."%(f))
+            self.client.upload(f)
+
+    def help(self):
+        ''' print help'''
+        print(Help['import'])
+
+class MaShow(BaseAction):
+    ''' A class subclassed from BaseAction to show the contents of a current file.'''
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)<1 or len(args)>4:
+            self.help()
+            raise MatoolError('Parsing error!')
+        self.action=args[0]
+        if self.action not in ['current','c','queue','q','log','rev','missionlog']:
+            self.help()
+            raise MatoolError('Parsing error!')
+        if self.action in ['current','queue','c','q'] and len(args)==3:
+            self.filename = args[1]
+            self.glider = args[2]
+        elif self.action in ['log'] and len(args)==2:
+            self.filename = "log.txt"
+            self.glider = args[1]
+        elif self.action=='rev' and len(args)==4:
+            self.filename=args[2]+".%03d"%(int(args[1]))
+            self.glider=args[3]
+        elif self.action=='missionlog' and len(args)==1:
+            self.filename="log.txt"
+            self.glider='mission'
+        else:
+            self.help()
+            raise MatoolError('Parsing error!')
+            
+    def run(self):
+        if self.action!='missionlog': # don't check we have a valid glider
+            self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+        self.check_connection()
+        if self.action in ['current','c']:
+            content=self.client.current(self.glider,self.filename)
+        elif self.action in ["queue",'q']:
+            self.client.status()
+            if (self.glider,self.filename) in self.client.queue:
+                content=self.client.anyfile(self.glider,self.filename)
+            else:
+                print("%s not found in queue."%(self.filename))
+                content=""
+        elif self.action in ["log","rev","missionlog"]:
+            content=self.client.anyfile(self.glider,self.filename)
+        else:
+            raise ValueError("unknow action")
+        self.write(content)
+
+    def write(self,content):
+        print(("%s"%(content)))
+
+    def help(self):
+        print(Help['current'])
+
+class MaDiff(BaseAction):
+    ''' A class subclassed from BaseAction to show a diff'''
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)>4:
+            self.help()
+            raise MatoolError('Parsing error!')
+        self.filename=args[0]
+        self.glider=args[1]
+        self.revision_x=args[2]
+        if len(args)==4:
+            self.revision_y=args[3]
+        else:
+            self.revision_y=""
+            
+    def run(self):
+        self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+        self.check_connection()
+        fn=self.filename+".%03d"%(int(self.revision_x))
+        content_x=self.client.anyfile(self.glider,fn)
+        if self.revision_y:
+            fn=self.filename+".%03d"%(int(self.revision_y))
+        else:
+            fn=self.filename
+        content_y=self.client.anyfile(self.glider,fn)
+        difference=self.diff(content_x,content_y)
+        self.write(difference)
+
+    def diff(self,s,t):
+        diff=difflib.unified_diff(s.split("\n"),t.split("\n"),n=0,lineterm="")
+        st="\n".join([i for i in diff])
+        return st
+
+    def write(self,content):
+        print(("%s"%(content)))
+
+    def help(self):
+        print(Help['diff'])
+
+class MaDiffLocal(MaDiff):
+    ''' A class subclassed from MaDiff, overwrites write class to return diff as a variable'''
+    def __init__(self,args,options,cf):
+        MaDiff.__init__(self,args,options,cf)
+
+    def write(self,content):
+        self.diff="%s"%(content)
+
+
+class MaExport(MaShow):
+    def __init__(self,args,options,cf):
+        MaShow.__init__(self,args,options,cf)
+
+    def _write(self,filename,content):
+        try:
+            fd=open(filename,'w')
+            fd.writelines(content)
+            fd.close()
+        except IOError as e:
+            raise MatoolError(e)
+
+    def write(self,filename,content):
+        print("Exporting %s to local directory..."%(filename))
+        if os.path.exists(filename):
+            if self.askToContinue("Overwite file? (y/n)"):
+                self._write(filename,content)
+        else:
+            self._write(filename,content)
+            
+    def run(self):
+        self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+        self.check_connection()
+        if self.filename=="*":
+            lof=self.client.fileList(self.glider)[0]
+            lof=[i for i in lof if i.endswith("ma") or i.endswith("mi") or i.endswith("dat") or i.endswith("srf")]
+        else:
+            lof=[self.filename]
+        for fn in lof:
+            if self.action in ['current','c']:
+                content=self.client.current(self.glider,fn)
+            elif self.action in ["queue",'q']:
+                self.client.status()
+                if (self.glider,fn) in self.client.queue:
+                    content=self.client.anyfile(self.glider,fn)
+                else:
+                    print("%s not found in queue."%(fn))
+                    content=""
+            elif self.action in ["log","rev"]:
+                content=self.client.anyfile(self.glider,fn)
+            else:
+                raise ValueError("unknow action")
+            if content:
+                self.write(fn,content)
+
+    def help(self):
+        print(Help['export'])
+    
+class MaStatus(BaseAction):
+    ''' A class subclassed from BaseAction to show which files are prepared
+    for uploading to the glider.'''
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)>1:
+            self.help()
+            raise MatoolError('Parsing error!')
+        if len(args)==1:
+            self.glider=args[0]
+        else:
+            self.glider=None
+
+    def run(self):
+        if self.glider:
+            self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+        self.check_connection()
+        r=self.client.status()
+        self.show_result(self.client.queue)
+
+    def show_result(self,r):
+        ''' Displays a list of files in the queue.'''
+        if self.glider and r:
+            ktd=[k for k in list(r.keys()) if k[0]!=self.glider]
+            for k in ktd:
+                r.pop(k)
+
+        if len(list(r.keys()))==0:
+            print("No files are scheduled for uploading.")
+        else:
+            print("Files scheduled for uploading:\n")
+            print("   File         Glider     Author")
+            print("-"*40)
+            for i,(k,v) in enumerate(r.items()):
+                print("%2d %-12s %-10s %-15s"%(i,k[1],k[0],v))
+
+    def help(self):
+        print(Help['queue'])
+
+class MaList(BaseAction):
+    ''' A class subclassed from BaseAction to show the filenames in the
+    repository for a particular glider'''
+
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)!=1:
+            self.help()
+            raise MatoolError('error')
+        self.glider = args[0]
+
+    def get_lof(self):
+        self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+        self.check_connection()
+        lof,revisions=self.client.fileList(self.glider)
+        return lof,revisions
+
+    def run(self):
+        lof,revisions=self.get_lof()
+        self.show_result(lof,revisions)
+
+    def key(self,x):
+        # custom sort function to ensure that mi files are listed on first.
+        # second criterion is to sort alphabetically.
+        if x.endswith(".ma") or x.endswith(".mi"):
+            base,ext=x.split('.')
+            return "%s-%s"%(ext,base)
+        else:
+            return "!"
+
+    def show_result(self,lof,revisions):
+        ''' shows a list of files as returned from the ma_edit_server'''
+        if len(lof)==0:
+            print("No files found.")
+        else:
+            lof.sort(key=self.key)
+            originals=[f for f in lof if not f.endswith("current")]
+            for i,f in enumerate(originals):
+                print("%2d %12s at rev. %03d"%(i,f,int(revisions[f])), end=' ')
+                if f+".current" in lof:
+                    print()
+                else:
+                    print("*")
+            print("\nNote: From files indicated with * it is not known\nwhether they reflect the files on this glider.")
+
+    def help(self):
+        print(Help['list'])
+
+
+class MaGliderList(BaseAction):
+    ''' A class subclassed from BaseAction to show the list of gliders
+    '''
+
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)!=0:
+            self.help()
+            raise MatoolError('error')
+
+    def run(self):
+        #self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+        self.check_connection()
+        gliders=self.client.gliderList()
+        self.show_result(gliders)
+
+    def show_result(self,gliders):
+        ''' shows a list of files as returned from the ma_edit_server'''
+        if len(gliders)==0:
+            print("No gliders found.")
+        else:
+            l=max([len(i) for i in gliders])+4
+            l=max([l,14])
+            print("Gliders found:")
+            print("-"*l)
+            for i,g in enumerate(gliders):
+                print("%2d %s"%(i,g))
+    def help(self):
+        print(Help['gliders'])
+
+
+
+class MaXML(BaseAction):
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)<1 or len(args)>3:
+            self.help()
+            raise MatoolError('Parsing error!')
+        self.action=args[0]
+        if self.action not in ['show','stop','pause','start','scripts']:
+            self.help()
+            raise MatoolError('Parsing error!')
+        if self.action in ['scripts'] and len(args)==1:
+            pass
+        elif self.action in ['show','stop','pause'] and len(args)==2:
+            self.glider = args[1]
+        elif self.action in ['start'] and len(args)==3:
+            self.glider = args[2]
+            self.filename = args[1]
+        else:
+            self.help()
+            raise MatoolError('Parsing error!')
+
+    def run(self):
+        if self.action in ['scripts']:
+            self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+            self.check_connection()
+            scripts=self.client.get_xmlscripts()
+            self.show_result(scripts)
+        else:
+            self.set_glider(self.glider)
+            self.client = ma_edit.Ma_XML_Client(self.host,self.port)
+            self.check_connection()
+            if self.action in ['show']:
+                content=self.client.show(self.glider)
+            elif self.action in ["stop"]:
+                content=self.client.stop(self.glider)
+            elif self.action in ["pause"]:
+                content=self.client.pause(self.glider)
+            elif self.action in ["start"]:
+                content=self.client.start(self.glider,self.filename)
+            else:
+                raise ValueError("unknow action")
+            self.write(content)
+
+    def write(self,content):
+        print(("%s"%(content)))
+
+    def show_result(self,scripts):
+        ''' shows a list of files as returned from the ma_edit_server'''
+        if not scripts:
+            print("No scripts found.")
+        i=0
+        for s in scripts['factory_scripts']:
+            print("%3d %7s %s"%(i,'factory',s))
+            i+=1
+        for s in scripts['user_scripts']:
+            print("%3d %7s %s"%(i,'user',s))
+            i+=1
+
+    def help(self):
+        print(Help['xml'])
+
+class MaDelete(BaseAction):
+    ''' A class subclassed from BaseAction to delete a ma/mi file from the
+    queue for a particular glider'''
+    
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)!=2:
+            self.help()
+            raise MatoolError('Parsing error!')
+        self.filename = args[0]
+        self.glider = args[1]
+
+    def run(self):
+        self.set_glider(self.glider)
+        self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+        self.check_connection()
+        r = self.client.delete(self.glider,self.filename)
+        mesg=self.errorMesg(r)
+        for m in mesg:
+            print(m)
+
+    def help(self):
+        print(Help['delete'])
+
+
+class UI(object):
+    ''' a simplistic User Interface, mainly for use on windows
+    to provide an alternative to supplying command line arguments.'''
+    def __init__(self):
+        self.welcomed=False
+    def welcome(self,force=False):
+        if force or not self.welcomed:
+            self.welcomed=True
+            print("                       MATOOL V%s"%(__VERSION__))
+            print("""
+edit [rev <revision_number>] <mafile> <glider> [author]
+show <current|queue> <mafile> <glider>
+show rev <revision_number> <mafile> <glider>
+show log <glider>
+show missionlog
+queue [glider]
+list <glider>
+delete <mafile> <glider>
+log <glider> [author]
+diff <mafile> <glider> <rev_x> [rev_y]
+import [[[filename] [filename] ...] <glider>
+export <current|queue> <mafile> <glider>
+gliders
+xml <scripts|show <glider>|stop <glider>|start <script> <glider>>
+missionlog
+
+ls
+help [command]
+
+m | menu to display this menu
+q | quit to quit
+""")
+
+    def read(self):
+        ''' read the arguments form the interactive cli.'''
+        while 1:
+            cli = input("> ")
+            args=cli.split()
+            if args:
+                break
+        return args
+
+class Command(UI):
+    ''' main class to flesh through the arguments given by the user
+    and invoke the appropriate action class'''
+    def __init__(self):
+        UI.__init__(self)
+        # process any options to matool on the command line
+        options,args=self.get_options()
+        if options.version:
+            self.show_version()
+        else:
+            configuration=Configurator()
+            self.config=configuration.read_config()
+            gliders=self.get_gliders([],options,self.config)
+            self.config['gliders']=gliders
+            while 1:
+                # get the command and its arguments
+                command,remaining_args = self.get_command(args)
+                if command=='quit' or command=='q':
+                    print("Bye!")
+                    break # we're finished
+                try:
+                    self.process(command,remaining_args,options)
+                except MatoolError as e:
+                    print(e)
+                if args:
+                    break # invoked from cli arguments. We're finished.
+
+    def show_version(self):
+        s="MA-EDIT Version %s\n"%(__VERSION__)
+        sys.stderr.write(s)
+
+    def get_gliders(self,args,options,configuration):
+        host=configuration['host']
+        port=configuration['port']
+        BA=BaseAction(args,options,configuration,client_options=[])
+        BA.client=ma_edit.Ma_Status_Client(BA.host,BA.port)
+        BA.check_connection()
+        gliders=BA.client.gliderList()
+        return gliders
+
+    def process(self,command,remaining_args,options):
+        ''' invokes the appropriate action based on the contents
+        of the command
+        '''
+        if command=='help':
+            if remaining_args:
+                command=remaining_args[0]
+                remaining_args=['help']
+            else:
+                self.help()
+        cf=self.config
+
+        if command not in COMMANDS:
+            print("Command %s is invalid."%(command))
+            print(Help['general'])
+        initial_text="" # for logging purposes.
+        optional_info="" # for logging purposes.
+        if command=='edit':
+            task=MaEdit(remaining_args,options,cf)
+            if task.result==1:
+                args_to_MaDiff=[i for i in remaining_args[:2]] # first two only
+                # add current revision number
+                args_to_MaDiff+=[task.current_revision]
+                # change parameters such that log command is run.
+                print("Debug: remaining",remaining_args)
+                remaining_args=remaining_args[1:]
+                command='log'
+                try:
+                    revision=int(task.current_revision)+1
+                except:
+                    revision=0
+                initial_text="Modified file: %s (revision %d)\n"%(task.filename,
+                                                        revision)
+                taskDiff=MaDiffLocal(args_to_MaDiff,options,cf)
+                optional_info=taskDiff.diff+"\n\n"
+        if command=='log':
+            task=MaLog(remaining_args,options,cf,initial_text,optional_info)
+        if command=='missionlog':
+            task=MissionLog(remaining_args,options,cf,initial_text,optional_info)
+        elif command=='show':
+            task=MaShow(remaining_args,options,cf)
+        elif command=='queue':
+            task=MaStatus(remaining_args,options,cf)
+        elif command=='list':
+            task=MaList(remaining_args,options,cf)
+        elif command=='gliders':
+            task=MaGliderList(remaining_args,options,cf)
+        elif command=='delete':
+            task=MaDelete(remaining_args,options,cf)
+        elif command=='import':
+            task=MaImport(remaining_args,options,cf)
+        elif command=='export':
+            task=MaExport(remaining_args,options,cf)
+        elif command=='diff':
+            task=MaDiff(remaining_args,options,cf)
+        elif command=='xml':
+            task=MaXML(remaining_args,options,cf)
+        elif command=='help':
+            pass
+        elif command=="ls":
+            if len(remaining_args)>0 and remaining_args[0]=='help':
+                print(Help['ls'])
+            else:
+                for i in ls():
+                    print(i)
+        elif command=="m" or command=="menu":
+            self.welcome(force=True)
+
+    def get_command(self,args):
+        if len(args)<1:
+            #raise MatoolError("Too few arguments. Need at least a command.")
+            # invoke UI
+            self.welcome()
+            args=self.read()
+        return args[0],args[1:]
+
+    def get_options(self):
+        parser = OptionParser()
+        parser.add_option("-s", "--viassh", dest="sshserver",
+                          action="store",
+                          help="Setup a tunnel via ssh server", metavar="FILE")
+        parser.add_option("-v","--version",action="store_true", dest="version",
+                          help="Show version number and quit")
+        return parser.parse_args()
+        
+    def help(self):
+        print(Help['general'])
+
+        
+
+
+if __name__=='__main__':
+    if 0:
+        try:
+            cmd = Command()
+        except Exception as e:
+            print(e)
+            sys.exit(0)
+    else:
+        cmd = Command()
+        

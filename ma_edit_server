@@ -1,0 +1,1004 @@
+#!/usr/bin/python3
+
+''' ma_edit_server: the server component of matool.
+
+ma_edit_server is to be run on the dockserver. It listens to port 9000
+(default) for client connections.
+
+The server waits for requests from the client and returns the relevant 
+information. 
+
+The program looks for several paths:
+
+gliderdirectory: this is the path to the glider directory as used by the 
+dockserver
+repository: a directory where all files for a specific glider are kept,
+including history.
+logfile: where some comments are dumped for debugging.
+
+This is configured in the file ~/.ma_edit_serverrc and can look like
+
+[Paths]
+gliderdirectory=/home/lucas/gliders
+logfile=/home/lucas/ma_edit_server.log
+repository=/home/lucas/dockserver/repository
+
+[Network]
+port=9000
+
+
+Licensed under GPL, see the file COPYRIGHT
+
+lucas.merckelbach@hzg.de, 1 June 2011
+
+'''
+from matools import xmlprotocol
+from matools import dialog
+from matools import __VERSION__
+import dbdreader
+
+from socket import *
+import os
+import sys
+import time
+import timeconversion
+import glob
+from threading import Thread
+import re
+from numpy import hstack
+import configparser
+import smtplib
+from email.mime.text import MIMEText
+from functools import reduce
+import getpass
+
+import dockserverTalk.dockserverTalk as DT
+
+# Modify these three variables to suit your situation:
+
+
+ConfigFile=os.path.join(os.environ['HOME'],'.ma_edit_serverrc')
+Defaults={'gliderdirectory':'gliders',
+          'repository':'repository',
+          'logfile':"ma_edit_server.log",
+          'smtpserver':'localhost',
+          'receivers':[],
+          'sender':'localuser@dockserver',
+          'dockserver':"141.4.0.159",
+          'port':6564,
+          'senderID':"ma_edit_server;0xb1gb1g" }
+
+
+
+class Emailer(object):
+    def __init__(self,receivers=[],sender=None,smtpserver=None):
+        self.sender=sender
+        self.smtpserver=smtpserver
+        self.receivers=receivers
+        self.login()
+        if not receivers or not sender or not smtpserver:
+            raise ValueError("Email facility not properly configured!")
+
+    def login(self):
+        print("Email will be sent as user %s."%(self.sender))
+        print("Edit the .ma_edit_rc file to change the sender.")
+        self.password=getpass.getpass()
+        
+        
+    def add_receiver(self,receiver):
+        self.receivers.append(receiver)
+
+    def send(self,text,glider):
+        msg = MIMEText(text)
+        msg['Subject'] = 'Glider log %s'%(glider.capitalize())
+        msg['From'] = self.sender
+        msg['To'] = ",".join(self.receivers)
+        try:
+            s = smtplib.SMTP(self.smtpserver)
+        except:
+            sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
+            return 
+
+        returnCode=s.login(self.sender,self.password)
+        if returnCode[0]!=235: # successful login
+            sys.stderr.write('Could not log into mail server.\n')
+        try:
+            s.sendmail(self.sender, self.receivers, msg.as_string())
+        except smtplib.SMTPRecipientsRefused as err:
+            sys.stderr.write("Failed to send email(s).\nError was:\n%s\n"%(err))
+        s.quit()
+
+
+class DockserverWatchDog(Thread):
+    ''' Watchdog class that executes a function at regulare
+        time intervals.
+    '''
+    def __init__(self,interval=600):
+        Thread.__init__(self)
+        self.daemon=True
+        self.interval=interval
+        self.fun = self.dummy
+    def dummy(self):
+        raise ValueError("No Function attached!")
+
+    def attachFunction(self,fun):
+        self.fun = fun
+
+    def run(self):
+        while True:
+            self.fun()
+            time.sleep(self.interval)
+
+class Ma_Edit(object):
+    
+    def __init__(self):
+        config = configparser.ConfigParser(Defaults)
+        cnfs=config.read(ConfigFile)
+        if cnfs:
+            self.gliderdirectory = config.get('Paths','gliderdirectory')
+            self.repository = config.get('Paths','repository')
+            logfile=config.get('Paths','logfile')
+            smtpserver=config.get('Email','smtpserver')
+            sender=config.get('Email','sender')
+            tmp=config.get('Email','receivers')
+            receivers=tmp.replace(',',' ').split()
+            #dockserver=config.get('Dockserver','dockserver')
+            #port=int(config.get('Dockserver','port'))
+            #senderID=config.get('Dockserver','senderID')
+        else:
+            HD=os.environ["HOME"]
+            self.gliderdirectory=os.path.join(HD,Defaults['gliderdirectory'])
+            self.repository=os.path.join(HD,Defaults['repository'])
+            logfile=os.path.join(HD,Defaults['logfile'])
+            smtpserver=Defaults['smtpserver']
+            sender=Defaults['sender']
+            receivers=Defaults['receivers']
+            dockserver=Defaults['dockserver']
+            port=Defaults['port']
+            senderID=Defaults['senderID']
+            print("Found no configuration file.")
+            print("I am going to write one with default settings to %s"%(ConfigFile))
+            print("You may want to edit this file, though.")
+            newconfig = configparser.ConfigParser()
+            newconfig.add_section('Paths')
+            newconfig.add_section('Email')
+            newconfig.add_section('Dockserver')
+            newconfig.set('Paths','gliderdirectory',self.gliderdirectory)
+            newconfig.set('Paths','repository',self.repository)
+            newconfig.set('Paths','logfile',logfile)
+            newconfig.set('Email','smtpserver',smtpserver)
+            newconfig.set('Email','sender',sender)
+            newconfig.set('Email','receivers',receivers.__str__())
+            newconfig.set('Dockserver','dockserver',dockserver)
+            newconfig.set('Dockserver','port',"%d"%(port))
+            newconfig.set('Dockserver','senderID',senderID)
+            fp=open(ConfigFile,'w')
+            newconfig.write(fp)
+            fp.close()
+        self.dialogs={}
+        self.reloadHistoryFile="ma_edit_server_reload.txt"
+        self.checkRepository()
+        self.cache = {}
+        self.queue = {}
+        self.fd = open(logfile,'w')
+        self.configuration=config
+        self.emailer=Emailer(receivers=receivers,
+                             sender=sender,
+                             smtpserver=smtpserver)
+        
+    def __nextFile(self,glider,filename):
+        ''' returns next sequential filename '''
+        fn=os.path.join(self.repository,glider,filename)
+        i=self.__currentSequentialNumber(glider,filename)
+        i+=1
+        return fn+".%03d"%(i)
+
+    def __sequential_number_at_time(self,glider,basefn,timestamp):
+        p = os.path.join(self.repository,glider,'history.txt')
+        fd=open(p,'r')
+        lines=[i for i in fd.readlines() if "Uploaded" in i and basefn in i]
+        revision_str=None
+        for line in lines:
+            datestr,rest=line.replace(": Uploaded","|").split("|")
+            tm=timeconversion.strptimeToEpoch(datestr,"%a %b %d %H:%M:%S %Y")
+            if tm<=timestamp:
+                revision_str=rest
+            else:
+                break
+        if revision_str==None:
+            return 0
+        else:
+            revision=revision_str.replace("(","|").replace(")","|").split("|")[1]
+        return int(revision)
+
+    def __sequential_number_at_time_with_mafiles(self,glider,basefn,timestamp):
+        p = os.path.join(self.repository,glider,'history.txt')
+        fd=open(p,'r')
+        txt=fd.readlines()
+        fd.close()
+        # find last mafiles reread action
+        k=-1
+        for i,v in enumerate(txt):
+            if "MAFILES reread." in v:
+                datestr,rest=v.replace(": ","| ").split("|")
+                tm=timeconversion.strptimeToEpoch(datestr,"%a %b %d %H:%M:%S %Y")
+                if tm<timestamp+5*60 or tm<timestamp-5*60: # allow 5 minute clock skewness.
+                    k=i
+                else:
+                    break
+        if k==-1:
+            return 0
+        # found line with latest MAFILES reread.
+        lines=[i for i in txt[:k] if "Uploaded" in i and basefn in i]
+        if not lines:
+            return 0
+        line=lines[-1] # take the last.
+        datestr,rest=line.replace(": Uploaded","|").split("|")
+        revision_str=rest
+        revision=revision_str.replace("(","|").replace(")","|").split("|")[1]
+        return int(revision)
+        
+    def __currentSequentialNumber(self,glider,filename):
+        fn=os.path.join(self.repository,glider,filename)
+        pattern="%s*"%(fn)
+        matches=glob.glob(pattern)
+        # remove all custom-made and other alternations:
+        matches = [i for i in matches if re.search("\.ma\.[0-9]*$",i)]
+        if matches:
+            matches.sort()
+            lastfn=matches[-1]
+            try:
+                i=int(lastfn.split('.')[-1])
+            except ValueError:
+                i=-1
+        else:
+            i=-1
+        return i
+
+    def __writeContent(self,fn,content):
+        fd = open(fn,'w')
+        fd.write(content)
+        fd.close()
+
+    def __writeHistory(self,glider,basefn,mode):
+        p = os.path.join(self.repository,glider,'history.txt')
+        timestamp=timeconversion.epochToDateTimeStr(time.time(),
+                                                    "%a %b %d %H:%M:%S %Y",
+                                                    "")[0]
+        if mode=='fail':
+            s="%s: Failed to write %s to repository\n"%(timestamp,basefn)
+        elif mode=="canonical":
+            sn=self.__currentSequentialNumber(glider,basefn)
+            s="%s: Modified %s. Will be numbered by %03d.\n"%(timestamp,basefn,sn+1)
+        elif mode=="current":
+            sn=self.__currentSequentialNumber(glider,basefn)
+            s="%s: Uploaded %s (%03d) succesfully.\n"%(timestamp,basefn,sn+1)
+        else:
+            s=""
+        if s:
+            fd = open(p,'a')
+            fd.write(s)
+            fd.close()
+
+    def __readFileFromToGlider(self,fn):
+        tmp = fn.replace(self.gliderdirectory,"")
+        tmp = tmp.replace("to-glider","")
+        tmp = tmp.replace("/"," ")
+        tmp = tmp.split()
+        glider=None
+        filename=None
+        content=None
+        if len(tmp)==2:
+            glider,filename=tmp
+            fd=open(fn,'r')
+            lines=fd.readlines()
+            fd.close()
+            content="".join(lines)
+        return glider,filename,content
+
+    def setupDockserverWatchDog(self,interval=60):
+        self.wd=DockserverWatchDog(interval)
+        self.wd.attachFunction(self.checkFilesRemovedByDockserver)
+        self.wd.start()
+
+    def checkRepository(self):
+        if not self.checkPath(self.repository):
+            self.fd.write("Creating repository directory %s\n"%(self.repository))
+            self.fd.flush()
+
+    def checkPath(self,path):
+        if not os.path.exists(path):
+            os.makedirs(path)
+            return False
+        else:
+            return True
+
+    def syncDirAndQue(self,interactive=True):
+        ''' upon start up, check whether anything in the to-glider directory
+            needs to be put to the queue.
+        '''
+        pattern = os.path.join(self.gliderdirectory,'*')
+        gliders = [i for i in glob.glob(pattern) if not i.endswith('unknown')]
+        fns=[]
+        for gpath in gliders:
+            pattern=os.path.join(gpath,"to-glider","*")
+            fns+=glob.glob(pattern)
+        answer=True
+        for fn in fns:
+            if interactive:
+                answer=input("Add %s to the queue? "%(fn)) in ['y','Y']
+            if answer:
+                glider,filename,content=self.__readFileFromToGlider(fn)
+                if glider:
+                    self.queue[(glider,filename)]=(content,'unknown')
+                    self.fd.write("Added: %s for %s\n"%(filename,glider))
+                else:
+                    self.fd.write("Could not process %s. File not added to queue.\n"%(fn))
+                self.fd.flush()
+
+            
+
+    def get_ticket(self):
+        return "%ld"%(int(time.time()*1000))
+
+    def addToCache(self,ticket,v):
+        self.cache[ticket]=v
+    
+    def retrieveFile(self,glider,filename):
+        p = os.path.join(self.repository,glider)
+        self.checkPath(p)
+        f = os.path.join(p,filename)
+        if os.path.exists(f):
+            fd = open(f,'r')
+            lines=fd.readlines()
+            fd.close()
+        else:
+            lines=[]
+        content = "".join(lines)
+        return f, content
+
+    def getFileList(self,glider,timestamp=None):
+        pma = os.path.join(self.repository,glider,'*.ma')
+        pmi = os.path.join(self.repository,glider,'*.mi')
+        pcur = os.path.join(self.repository,glider,'*.current')
+        fn=glob.glob(pma)
+        fn+=glob.glob(pmi)
+        # getting the revisions for only mi and ma files:
+        revisions={}
+        for f in fn:
+            b=os.path.basename(f)
+            if timestamp:
+                r=self.__sequential_number_at_time(glider,b,timestamp)
+            else:
+                r=self.__currentSequentialNumber(glider,b)
+            revisions[b]=r
+        fn+=glob.glob(pcur) # add current files, at last.
+        return list(map(os.path.basename,fn)),revisions
+
+    def getRevision(self,filename,glider):
+        r=self.__currentSequentialNumber(glider,filename)
+        # the current revision is in fact 1 higher than the highest
+        # number found for the extension
+        r+=1
+        #return as a string
+        return "%d"%(r)
+
+    def getGliderList(self):
+        pattern = os.path.join(self.gliderdirectory,'*')
+        gliders = [i for i in glob.glob(pattern) if not i.endswith('unknown')]
+        gliders=[i.split(os.sep)[-1] for i in gliders]
+        return gliders
+
+    def getScriptList(self):
+        dockserver=self.configuration.get('Dockserver','host')
+        port=self.configuration.getint('Dockserver','port')
+        senderID="test-dt;0xb1gb1g"
+        t=DT.ThreadedDockserverComm(dockserver,None,port,
+                            senderID=senderID,socket_timeout=1,
+                            debug=False)
+        t.start()
+        scripts=t.requestScripts(5)
+        t.terminate()
+        return scripts
+
+    def respondMafile(self,glider,filename,user):
+        fn,content = self.retrieveFile(glider,filename)
+        ticket =self.get_ticket()
+        self.addToCache(ticket,(fn,glider,filename,user,content))
+        revision=self.getRevision(filename,glider)
+        xml = xmlprotocol.ResponseMafile(content,ticket,revision)
+        return xml.toxml()
+
+    def respondLogfile(self,glider,user):
+        filename='log.txt'
+        fn,content = self.retrieveFile(glider,filename)
+        ticket =self.get_ticket()
+        self.addToCache(ticket,(fn,glider,filename,user,content))
+        xml = xmlprotocol.ResponseMafile(content,ticket,'none')
+        return xml.toxml()
+
+
+    def writeToGlider(self,glider,filename,content):
+        fn = os.path.join(self.gliderdirectory,glider,'to-glider',filename)
+        try:
+            self.__writeContent(fn,content)
+        except IOError:
+            return False
+        return True
+
+    def writeToRepository(self,glider,basefilename,content,mode='sequential'):
+        if mode == 'sequential':
+            fn = self.__nextFile(glider,basefilename)
+        elif mode == 'fail':
+            fn = os.path.join(self.repository,glider,basefilename)+".fail"
+        elif mode == 'canonical':
+            fn = os.path.join(self.repository,glider,basefilename)
+        elif mode == 'current':
+            fn = os.path.join(self.repository,glider,basefilename)+".current"
+        else:
+            raise ValueError('Mode not supported')
+        self.__writeContent(fn,content)
+        self.__writeHistory(glider,basefilename,mode)
+
+
+    def processReturnedMafile(self,ticket,content):
+        if ticket in self.cache:
+            r = xmlprotocol.ACCEPT
+            f,glider,filename,user,origContent = self.cache.pop(ticket)
+            if not self.writeToGlider(glider,filename,content):
+                r|=xmlprotocol.WRITEERROR
+                self.writeToRepository(glider,filename,content,mode='fail')
+            else:
+                # only add to the queue if it has been written.
+                if (glider,filename) in self.queue:
+                    r|=xmlprotocol.OVERWRITE
+                self.queue[(glider,filename)]=(content,user)
+                #write the origal file content next sequential file
+                self.writeToRepository(glider,filename,origContent,
+                                       mode='sequential')
+                # and then write the new stuff as the real name.
+                self.writeToRepository(glider,filename,content,
+                                       mode='canonical')
+        else:
+            r = xmlprotocol.INVALIDTICKET
+        return r
+
+    def difference(self,content_mod,user):
+        i=content_mod.index("="*10)
+        if i and content_mod[:i].split():
+            s=content_mod[:i]
+            mark="-"*10+" MARK "+"-"*10
+            preamble="%s\n Date  : %s\n Author: %s\n\n"%(mark,time.ctime(),user)
+            return preamble+s
+        else:
+            return ""
+
+    def reverse_log_file(self,logtext):
+        blocks=[]
+        MARK="---------- MARK ----------"
+        block=[MARK]
+        for i in logtext.split("\n"):
+            if i==MARK:
+                blocks.append(block)
+                block=[i]
+                continue
+            block.append(i)
+        blocks.append(block)
+        blocks.reverse()
+        txt=reduce(lambda x,y:x+y,blocks,[""])
+        return "\n".join(txt)
+
+    def processReturnedLogfile(self,ticket,content):
+        if ticket in self.cache:
+            r = xmlprotocol.ACCEPT
+            f,glider,filename,user,origContent = self.cache.pop(ticket)
+            diff=self.difference(content,user)
+            current_content=self.retrieveFile(glider,filename)[1]
+            self.emailer.send(self.reverse_log_file(current_content+diff),glider)
+            self.writeToRepository(glider,filename,current_content+diff,mode='canonical')
+        else:
+            r = xmlprotocol.INVALIDTICKET
+        return r
+    
+    def deleteFromToGlider(self,glider,filename):
+        fn = os.path.join(self.gliderdirectory,glider,'to-glider',filename)
+        if not os.path.exists(fn):
+            errorCode=xmlprotocol.DELETENOTFOUND
+        else:
+            try:
+                os.remove(fn)
+                self.queue.pop((glider,filename))
+            except OSError:
+                errorCode=xmlprotocol.DELETEFAILURE
+            else:
+                errorCode=xmlprotocol.DELETESUCCESS
+        return errorCode
+
+    def addReloadEvent(self,glider):
+        fd=open(self.reloadHistoryFile,'a')
+        s="%f %s %s\n"%(time.time(),glider,time.ctime())
+        fd.write(s)
+        fd.close()
+
+    def isReread(self,glider,since=12):
+        if glider not in self.dialogs:
+            p=os.path.join(self.gliderdirectory,glider,"logs","*.log")
+            self.dialogs[glider]=dialog.DialogMonitor(p)
+        if "mafiles reread" not in self.dialogs[glider].events:
+            self.dialogs[glider].add_event("mafiles reread",
+                                           "MAFILES will be re-read")
+        self.dialogs[glider].read()
+        # if timestamp of reread is newer than of c_wapoint than reread is true
+        # otherwise we can assume that we're better off with c_wapoints.
+        reread_tm=self.dialogs[glider].events["mafiles reread"].event_timestamp
+        tmp=self.getLastPositions(glider,extension='sbd',window=12.)
+        c_wpt_tm=tmp[0]
+        c_wpt=tmp[5]
+        if c_wpt and c_wpt_tm and (reread_tm>c_wpt_tm):
+            return "1"
+        else:
+            return "0"
+
+    def isPickup_org(self,glider):
+        p=os.path.join(self.gliderdirectory,glider,"logs","*.log")
+        logfiles=glob.glob(p)
+        logfiles.sort()
+        last_log_file=logfiles[-1]
+        fd=open(last_log_file,'r')
+        log=fd.readlines()
+        fd.close()
+        pickup=0
+        for l in log:
+            if "RESUMING MISSION" in l:
+                pickup=1
+        if pickup:
+            for l in log:
+                if "MAFILES will be re-read" in l:
+                    pickup=0
+        return "%d"%(pickup)
+
+    def __get_time_of_log_file(self,fn):
+        # the time is hidden in the file name as glidername_network_xxxx.log
+        # it is not inconceivable that the glider name has _ in it.
+        basename=os.path.basename(fn)
+        n_underscores=basename.count('_')
+        # get the string from the last _:
+        timestr=(basename.split('_')[n_underscores]).replace(".log","")
+        t=timeconversion.strptimeToEpoch(timestr,"%Y%m%dT%H%M%S")
+        return t
+
+    def isPickup(self,glider,timestamp):
+        if timestamp=="now":
+            t=time.time()
+        else:
+            t=float(timestamp)
+        p=os.path.join(self.gliderdirectory,glider,"logs","*.log")
+        logfiles=glob.glob(p)
+        logfiles.sort()
+        last_log_file=logfiles[-1]			
+        if timestamp=="now": # the most recent log file is the one we want
+            pass
+        else:
+            for lf in logfiles:
+                time_of_log_file=self.__get_time_of_log_file(lf) # creation time
+                if time_of_log_file>t: 
+                    break
+                last_log_file=lf
+        #
+        fd=open(last_log_file,'r')
+        log=fd.readlines()
+        fd.close()
+        # assume a pickup.
+        pickup=1
+        
+        for l in log:
+            if "load_mission()" in l:
+                pickup=0
+        for l in log:
+            if "RESUMING MISSION" in l:
+                pickup=1
+        if pickup:
+            for l in log:
+                if "MAFILES will be re-read" in l:
+                    pickup=0
+        return "%d"%(pickup)
+
+    def checkFilesRemovedByDockserver(self): 
+        current={}
+        reread=False
+        for (glider,filename),(content,author) in self.queue.items():
+            fn = os.path.join(self.gliderdirectory,glider,'to-glider',filename)
+            if not os.path.exists(fn):
+                # file has been removed. Assume it was by the dockserver
+                current[(glider,filename)]=(content,fn)
+                reread=True
+        for k,(content,fn) in current.items():
+            self.queue.pop(k)
+            glider,filename=k
+            self.writeToRepository(glider,filename,content,mode='current')
+        if reread:
+            self.addReloadEvent(glider)
+
+    def purgePositions(self,tm,lat,lon,dt=15):
+        x=[(i,j,k) for i,j,k in zip(tm,lat,lon)]
+        x.sort() 
+        raise ValueError("sorting operation needs still to be checked")
+        _tm=[]
+        _lat=[]
+        _lon=[]
+        t0=0
+        dts=dt*60
+        for i,j,k in x:
+            if j<9000 and (i-t0)>dts:
+                _tm.append(i)
+                _lat.append(j)
+                _lon.append(k)
+                t0=i
+        return _tm,_lat,_lon
+                
+
+    def getLastPositions(self,glider,extension='sbd',window=12.):
+        fromTime=time.time()-window*3600
+        pattern=os.path.join(self.gliderdirectory,
+                             glider,'from-glider','%s*.%s'%(glider,extension))
+        fns = glob.glob(pattern)
+        if not fns:
+            return None,None,None,None,None,None,None
+        else:
+            fns=dbdreader.DBDList(fns)
+            fns.sort(reverse=True)
+            mlats=[]
+            mlons=[]
+            xlats=[]
+            xlons=[]
+            clats=[]
+            clons=[]
+            xlat=([],[]) # for if test later.
+            latlonFound=False
+            lastwptFound=False
+            cwptFound=False
+            for fn in fns:
+                dbd=dbdreader.DBD(fn)
+                if not latlonFound:
+                    mlat=dbd.get('m_gps_lat',decimalLatLon=False)
+                    mlon=dbd.get('m_gps_lon',decimalLatLon=False)
+                    if mlat[0]!=None and len(mlat[0])>0:
+                        latlonFound=True
+                if not lastwptFound:
+                    xlat=dbd.get('x_last_wpt_lat',decimalLatLon=False)
+                    xlon=dbd.get('x_last_wpt_lon',decimalLatLon=False)
+                    if xlat[0]!=None and len(xlat[0])>0:
+                        lastwptFound=True
+                if not cwptFound:
+                    clat=dbd.get('c_wpt_lat',decimalLatLon=False)
+                    clon=dbd.get('c_wpt_lon',decimalLatLon=False)
+                    if clat[0]!=None and len(clat[0])>0:
+                        cwptFound=True
+                if cwptFound and lastwptFound and latlonFound:
+                        break # read enough dbds
+            tm=None
+            lat=None
+            lon=None
+            x_lat=None
+            x_lon=None
+            c_lat=None
+            c_lon=None
+            if latlonFound:
+                tm=mlat[0][-1]
+                lat=mlat[1][-1]
+                lon=mlon[1][-1]
+            if lastwptFound:
+                x_lat=xlat[1][-1]
+                x_lon=xlon[1][-1]
+            if cwptFound:
+                c_lat=clat[1][-1]
+                c_lon=clon[1][-1]
+            log_tm,log_lat,log_lon=self.last_position_from_log(glider)
+            if log_tm!=None and log_tm>tm and log_lat!=None and log_lon!=None:
+                tm=log_tm
+                lat=log_lat
+                lon=log_lon
+                #sys.stdout.write("Getting lat/lon from logs.\n")
+                #sys.stdout.flush()
+            return tm,lat,lon,x_lat,x_lon,c_lat,c_lon
+
+    def last_position_from_log(self,glider):
+        path=os.path.join(self.gliderdirectory,glider,'logs')
+        logfiles=os.listdir(path)
+        logfiles.sort()
+        last_logfile=logfiles[-1]
+        fn=os.path.join(path,last_logfile)
+        lat=None
+        lon=None
+        tm=None
+        fd=None
+        try:
+            fd=open(fn,'r')
+            while True:
+                line=fd.readline()
+                if not line:
+                    break
+                line=line.strip()
+                #GPS Location:  5419.919 N   606.073 E measured     44.405 secs ago
+                if line.startswith("GPS Location:") and line.endswith("secs ago"):
+                    fields=line.split()
+                    lat=float(fields[2])
+                    lon=float(fields[4])
+                    if fields[3]!='N':
+                        lat*=-1
+                    if fields[5]!='E':
+                        lon*=-1
+                #Curr Time: Tue May 26 08:41:56 2015 MT:  502714
+                if line.startswith("Curr Time:") and "MT:" in line:
+                    fields=line.split()
+                    timestr=" ".join(fields[3:7])
+                    tm=timeconversion.strptimeToEpoch(timestr,"%b %d %H:%M:%S %Y")
+        except:
+            sys.stderr.write("Failed to read log file for getting time info.\n")
+        finally:
+            if fd!=None:
+                fd.close()
+        return tm,lat,lon
+
+
+
+            
+    def get_active_script(self,glider):
+        dockserver=self.configuration.get('Dockserver','host')
+        port=self.configuration.getint('Dockserver','port')
+        senderID="test-dt;0xb1gb1g"
+        t=DT.ThreadedDockserverComm(dockserver,glider,port,
+                            senderID=senderID,socket_timeout=1,
+                            debug=False)
+        t.start()
+        for i in range(5): # give 5 times socket_timeout time time to
+                           # get a response
+            if t.gliderConfig.status!='0': # unknown
+                break
+            time.sleep(1)
+        t.terminate()
+        return t.gliderConfig.script_engine
+
+
+    def stop_script(self,glider):
+        dockserver=self.configuration.get('Dockserver','host')
+        port=self.configuration.getint('Dockserver','port')
+        senderID="test-dt;0xb1gb1g"
+        t=DT.ThreadedDockserverComm(dockserver,glider,port,
+                            senderID=senderID,socket_timeout=1,
+                            debug=False)
+        t.start()
+        for i in range(5): # give 5 times socket_timeout time time to
+                           # get a response
+            if t.gliderConfig.status!='0': # unknown
+                break
+            time.sleep(1)
+        script_name=t.gliderConfig.script_engine.script_name
+        script_type=t.gliderConfig.script_engine.script_type
+        xml=t.controlScript(script_name,script_type,'4','0')
+        time.sleep(1)
+        t.terminate()
+        s=t.gliderConfig.script_engine.script_name==script_name
+        s&=t.gliderConfig.script_engine.script_type==script_type
+        if not s:
+            return "OK"
+        else:
+            return "Fail"
+
+    def start_script(self,glider,script,script_type):
+        if script.isdigit():
+            i=int(script)
+            scripts=self.getScriptList()
+            lf=scripts['factory_scripts']
+            lf.sort
+            lu=scripts['user_scripts']
+            lu.sort
+            lt=['factory']*len(lf)+['user']*len(lu)
+            scriptlist=lf+lu
+            if i<0 or i>len(scriptlist):
+                return "No script with index %d"%(i)
+            script=scriptlist[i]
+            script_type=lt[i]
+
+        dockserver=self.configuration.get('Dockserver','host')
+        port=self.configuration.getint('Dockserver','port')
+        senderID="test-dt;0xb1gb1g"
+        t=DT.ThreadedDockserverComm(dockserver,glider,port,
+                            senderID=senderID,socket_timeout=1,
+                            debug=False)
+        t.start()
+        t.controlScript(script,script_type,'0','5') #'5' is priority
+        for i in range(5): # give 5 times socket_timeout time time to
+                           # get a response
+            if t.gliderConfig.status!='0': # unknown
+                break
+            time.sleep(1)
+        t.terminate()
+        s=t.gliderConfig.script_engine.script_name==script
+        s&=t.gliderConfig.script_engine.script_type==script_type
+        if s:
+            return "Starting %s OK"%(script)
+        else:
+            return "Starting %s Failed"%(script)
+
+class Server(Ma_Edit):
+    def __init__(self,port=9000):
+        Ma_Edit.__init__(self)
+        try:
+            port=self.configuration.getint('Network','port')
+        except:
+            pass
+        self.s = socket(AF_INET,SOCK_STREAM)
+        self.s.setsockopt(SOL_SOCKET, SO_REUSEADDR,1)
+        self.s.bind(('',port))
+        self.s.listen(5)
+        self.bufferLength=1024
+    
+    def digest(self,msg):
+        r = xmlprotocol.XMLReader()
+        r.digest(msg)
+        if r.type=='request' and r.action=='mafile':
+            d = dict((k,v) for k,v in r.children['mafile'])
+            user = d['author']
+            glider = d['glider']
+            filename = d['filename']
+            answer = self.respondMafile(glider,filename,user)
+        elif r.type=='request' and r.action=='returnmafile':
+            d = dict((k,v) for k,v in r.children['content'])
+            ticket = d['ticket']
+            content = r.packet.getElementsByTagName('content')[0]
+            t = "".join([i.nodeValue for i in content.childNodes])
+            r = self.processReturnedMafile(ticket,t)
+            resp = xmlprotocol.ResponseReturnMafile()
+            resp.set_results(r)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='logfile':
+            d = dict((k,v) for k,v in r.children['logfile'])
+            user = d['author']
+            glider = d['glider']
+            answer = self.respondLogfile(glider,user)
+        elif r.type=='request' and r.action=='returnlogfile':
+            d = dict((k,v) for k,v in r.children['content'])
+            ticket = d['ticket']
+            content = r.packet.getElementsByTagName('content')[0]
+            t = "".join([i.nodeValue for i in content.childNodes])
+            r = self.processReturnedLogfile(ticket,t)
+            resp = xmlprotocol.ResponseReturnLogfile()
+            resp.set_results(r)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='queuestatus':
+            resp = xmlprotocol.ResponseQueueStatus()
+            for (glider,filename),(content,author) in self.queue.items():
+                resp.addQueue(glider,filename,author)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='delete':
+            resp = xmlprotocol.ResponseDelete()
+            d = dict((k,v) for k,v in r.children['mafile'])
+            result = self.deleteFromToGlider(d['glider'],
+                                             d['filename'])
+            resp.set_results(d['glider'],d['filename'],result)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='current':
+            resp = xmlprotocol.ResponseCurrent()
+            d = dict((k,v) for k,v in r.children['mafile'])
+            glider=d['glider']
+            filename=d['filename']+'.current'
+            fn,content=self.retrieveFile(glider,filename)
+            resp.set_content(content)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='file':
+            resp = xmlprotocol.ResponseAnyFile()
+            d = dict((k,v) for k,v in r.children['file'])
+            glider=d['glider']
+            filename=d['filename']
+            fn,content=self.retrieveFile(glider,filename)
+            resp.set_content(content)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='position':
+            d = dict((k,v) for k,v in r.children['position'])
+            glider=d['glider']
+            window=float(d['window'])
+            tm,lat,lon,last_wpt_lat,last_wpt_lon,\
+                c_wpt_lat,c_wpt_lon= self.getLastPositions(glider,'sbd',window)
+            resp = xmlprotocol.ResponsePosition(glider)
+            if tm:
+                resp.set_positions(tm,lat,lon,last_wpt_lat,last_wpt_lon,\
+                                       c_wpt_lat,c_wpt_lon)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='filelist':
+            d = dict((k,v) for k,v in r.children['filelist'])
+            glider=d['glider']
+            if 'timestamp' not in d:
+                timestamp=None
+            else:
+                timestamp=d['timestamp']
+                if timestamp=="":
+                    timestamp=None
+                else:
+                    timestamp=float(timestamp)
+            resp =  xmlprotocol.ResponseFileList(glider)
+            fns,revisions = self.getFileList(glider,timestamp)
+            resp.set_lof(fns,revisions)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='rereadstatus':
+            d = dict((k,v) for k,v in r.children['rereadstatus'])
+            glider=d['glider']
+            resp =  xmlprotocol.ResponseReread(glider)
+            rereadstatus=self.isReread(glider)
+            resp.set_rereadstatus(rereadstatus)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='pickupstatus':
+            d = dict((k,v) for k,v in r.children['pickupstatus'])
+            glider=d['glider']
+            timestamp=d['timestamp']
+            resp =  xmlprotocol.ResponsePickup(glider)
+            pickupstatus=self.isPickup(glider,timestamp)
+            resp.set_pickupstatus(pickupstatus)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='gliderlist':
+            resp =  xmlprotocol.ResponseGliderList()
+            gliders = self.getGliderList()
+            resp.set_list_of_gliders(gliders)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='xmlscripts':
+            resp =  xmlprotocol.ResponseXMLList()
+            scripts = self.getScriptList()
+            resp.set_list_of_scripts(scripts)
+            answer = resp.toxml()
+        elif r.type=='request' and r.action=='xml':
+            command=r.packetAttributes['command']
+            glider=r.packetAttributes['glider']
+            resp =  xmlprotocol.ResponseXMLScript(command)
+            if command=='show':
+                value = self.get_active_script(glider)
+                resp.set("script_name",value.script_name)
+                resp.set("script_type",value.script_type)
+            elif command=='stop':
+                value = self.stop_script(glider)
+                resp.set("return_code",value)
+            elif command=='start':
+                script=r.packetAttributes['script_name']
+                script_type=r.packetAttributes['script_type']
+                value = self.start_script(glider,script,script_type)
+                resp.set("return_code",value)
+            else:
+                raise ValueError('not implemented')
+            answer = resp.toxml()
+        else:
+            raise ValueError('unknown response')
+        return answer
+
+            
+    def run(self):
+        self.fd.write("ma_edit_server started at %s.\n"%(time.ctime()))
+        self.fd.flush()
+        while True:
+            client,addr = self.s.accept()
+            hello="%sV%-8s"%(xmlprotocol.ID,__VERSION__)
+            hellob=bytes(hello,encoding='utf-8')
+            client.send(hellob)
+            self.checkFilesRemovedByDockserver()
+            try:
+                mesgb = client.recv(self.bufferLength)
+                mesg=mesgb.decode('utf-8')
+                if mesg:
+                    while True:
+                        if mesg.endswith('</packet>'):
+                            break
+                        mesgb=client.recv(self.bufferLength)
+                        mesg+=mesgb.decode('utf-8')
+                    answer = self.digest(mesg)
+                    answerb=bytes(answer,encoding='utf-8')
+                    client.send(answerb)
+            except error as e:
+                if e[0]!=104:
+                    raise error(e)
+            client.close()
+
+# main program #
+
+s = Server()
+s.syncDirAndQue()
+s.setupDockserverWatchDog(60)
+s.run()
+        

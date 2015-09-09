@@ -1,0 +1,12 @@
+ma_edit_server
+matool
+Readme
+COPYRIGHT
+COPYING
+setup.py
+matools/__init__.py
+matools/ma_edit.py
+matools/xmlprotocol.py
+matools/ma_linux.py
+matools/ma_windows.py
+doc/matool-howto.pdf

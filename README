@@ -1,0 +1,160 @@
+Read me for the use of matool
+
+
+
+
+
+MATOOL
+======
+
+matool is the script to commiuncate with the dockserver in order to prepare files for uploading. Using this script the user does not need to take care of keeping a record of the files, and to figure out whether or not they are uploaded to the glider. 
+
+matool expects one command, which can be
+
+help (gives general help)
+
+edit
+
+delete
+
+queue
+
+list
+
+
+The command help gives general help on the program. If help is followed by one of the other commands, an explanation of that command is printed.
+
+matool edit
+===========
+matool edit is to be used to edit a file. Edit expects 2 arguments and a third is optional:
+
+matool edit <filename> <glider> [user]
+
+The mnemonic is "EDIT a FILE for GLIDER by USER". If user is not supplied it will be localuser. It is only used to allow a user specific choice for the editor. The default is gedit.
+
+An example:
+
+matool edit yo50.ma amadeus
+
+This will bring up an editor with the contents of the latest version of yo50.ma for glider amadeus. The file can be changed (or not). When finished, the user has the choice to abort (and nothing will be done), or to continue. In the latter case, the file will be copied to the to-glider directory of, in this case amadeus, the original file in the repository on the dockserver will be sequentially numbered and the new version of the file will be placed under its normal name in the repository. So in this case, the original version of yo50.ma is renamed yo50.ma.n with n the next sequential number, the new file will be yo50.ma and this file is copied to the to-glider directory.
+
+As soon as the glider picks this file up, the yo50.ma in the repository will be copied to yo50.ma.current, reflecting the file on the glider.
+
+matool delete
+=============
+To delete a file, it is required to do that using the delete function of matool. If the file were to be removed manually at the dockserver, this would be interpreted as being picked up by the glider.
+
+The invocation is:
+
+matool delete <filename> <glider>
+
+
+matool queue
+============
+
+To see what files are placed in the queue to be uploaded (i.e. in the to-glider directories), the queue command is used.
+
+matool queue [glider]
+
+The glider name is optional. If not specified, all queued files are listed.
+
+matool list
+===========
+The list command shows the files in the repository for a specific glider. Its invocation is
+
+matool list <glider>
+
+Files marked by * are not yet uploaded to the glider, which means it is uncertain if the file in the repository reflects the file on the glider.
+
+
+
+
+
+Using matool from outside HZG network.
+
+As usual there is the usual problem with firewalls. The matool script is designed to make this as painless as possible. The price is that we need to set things up first.
+
+
+Setup of tunnels
+================
+
+When residing outside of the HZG firewall, it is necessary to set up a tunnel first. The authentication is based on a public/private key pair. This type of authentication requires no hassle with passwords and the like, but it requires to be setup up first. The good news is, it needs to be done only once.
+
+1) Setting up a public/private key pair.
+
+Open a terminal (ctrl-alt t), and type
+
+ssh-keygen -t dsa
+
+and answer the questions with the defaults and provide an empty passphrase. This generates in .ssh id_dsa and id_dsa.pub. The id_dsa is the private key and should be kept secret. The public key is to be copied to the dockserver. For security there is a separate user on the dockserver for this "ma_edit". When the key is installed, no normal logins can be made anymore to this account using the key. This avoids a security risk should the usb stick get lost.
+
+2) To copy the key to the dockserver:
+
+scp .ssh/id_dsa.pub ma_edit@141.4.0.159:
+
+The password is the same as the usual password for localuser. 
+
+3) Then we need to put the key in the right place. 
+
+To that end, we login in on the dockserver and run a script that does this automatically.
+
+ssh ma_edit@141.4.0.159 setupkey.sh id_dsa.pub
+
+and logout again (exit/ctrl-d/logout)
+
+Now, interactive logins as "ma_edit" using the key is not possible. 
+
+4) Testing the account ma_edit (optional)
+
+You can test it by opening up a new terminal (ctr+alt t) and type
+
+ssh ma_edit@141.4.0.159
+
+and an error message will follow. You have to close the window as nothing responds. (Therefore to open a new terminal to test...)
+
+Every thing is now set up.
+
+
+Using matool through the firewall
+=================================
+
+matool need to be made aware of using tunnels. This is done using the (only) option to matool, namely -s or --viassh. This option takes one argument, namely the server that is being used to login to. This is probably always dockserver0.hzg.de (141.4.0.159).
+
+So, once the keys have been setup, using the matool script through the firewall is as easy as
+
+matool -s 141.4.0.159 edit yo50.ma amadeus
+
+Under the hood a ssh tunnel will be setup with a life time of 30 minutes. If this time has elapsed the tunnel will be closed down. If it is required again, it will be automatically setup again. 
+
+If the tunneling is always used, then this can also be specified in the configuration file. Then the -s option is not required.
+
+The configuration file is found as /home/localuser/.matoolrc
+
+and looks like
+
+[Network]
+host = 141.4.0.159
+port = 9000
+
+[Ssh]
+sshserver = None
+gracetime = 1800
+
+[lucas]
+editor = /usr/bin/emacs
+
+Setting sshserver to 141.4.0.159 will make matool always work via tunnels.
+Each user can have his section that describes the editor used. So, if you prefer nano as editor, you would
+
+add a section
+[localuser]
+editor=/usr/bin/nano
+
+The host and port number in the Network section are not required to be changed.
+
+Bug fixes, questions and remarks are appreciated. Send them to 
+
+lucas.merckelbach@hzg.de
+
+
+
