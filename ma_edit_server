@@ -662,17 +662,17 @@ class Ma_Edit(object):
                 if not latlonFound:
                     mlat=dbd.get('m_gps_lat',decimalLatLon=False)
                     mlon=dbd.get('m_gps_lon',decimalLatLon=False)
-                    if mlat[0]!=None and len(mlat[0])>0:
+                    if not mlat[0] is None and len(mlat[0])>0:
                         latlonFound=True
                 if not lastwptFound:
                     xlat=dbd.get('x_last_wpt_lat',decimalLatLon=False)
                     xlon=dbd.get('x_last_wpt_lon',decimalLatLon=False)
-                    if xlat[0]!=None and len(xlat[0])>0:
+                    if not xlat[0] is None and len(xlat[0])>0:
                         lastwptFound=True
                 if not cwptFound:
                     clat=dbd.get('c_wpt_lat',decimalLatLon=False)
                     clon=dbd.get('c_wpt_lon',decimalLatLon=False)
-                    if clat[0]!=None and len(clat[0])>0:
+                    if not clat[0] is None and len(clat[0])>0:
                         cwptFound=True
                 if cwptFound and lastwptFound and latlonFound:
                         break # read enough dbds
