@@ -77,7 +77,10 @@ class Emailer(object):
         self.receivers=receivers
         self.login()
         if not receivers or not sender or not smtpserver:
-            raise ValueError("Email facility not properly configured!")
+            sys.stderr.write("Email facility not properly configured!\n")
+            self.status=False
+        else:
+            self.status=True
 
     def login(self):
         print("Email will be sent as user %s."%(self.sender))
@@ -494,7 +497,8 @@ class Ma_Edit(object):
             f,glider,filename,user,origContent = self.cache.pop(ticket)
             diff=self.difference(content,user)
             current_content=self.retrieveFile(glider,filename)[1]
-            self.emailer.send(self.reverse_log_file(current_content+diff),glider)
+            if self.emailer.status:
+                self.emailer.send(self.reverse_log_file(current_content+diff),glider)
             self.writeToRepository(glider,filename,current_content+diff,mode='canonical')
         else:
             r = xmlprotocol.INVALIDTICKET
