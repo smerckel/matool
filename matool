@@ -207,12 +207,14 @@ Command missionlog
 
 
 class Configurator(object):
-    def __init__(self):
+    def __init__(self, config_path = None):
         self.user = ma_os.User
-        if not os.path.exists(ma_os.ConfigPath):
-            sys.stderr.write("Found no configuration file %s. Creating one with default settings.\n"%(ma_os.ConfigPath))
+        config_path = config_path or ma_os.ConfigPath
+        if not os.path.exists(config_path):
+            sys.stderr.write("Found no configuration file %s. Creating one with default settings.\n"%(config_path))
             self.write_config_defaults()
-
+        self.config_path = config_path
+        
     def write_config_defaults(self):
         config = configparser.SafeConfigParser()
         config.add_section('Network')
@@ -228,7 +230,7 @@ class Configurator(object):
     def read_config(self):
         # do some configuration stuff
         config = configparser.SafeConfigParser(Defaults)
-        config.read(ma_os.ConfigPath)
+        config.read(self.config_path)
         self.host = config.get('Network','host')
         self.port = config.getint('Network','port')
         try:
@@ -941,7 +943,7 @@ class Command(UI):
         if options.version:
             self.show_version()
         else:
-            configuration=Configurator()
+            configuration=Configurator(options.config_filename)
             self.config=configuration.read_config()
             gliders=self.get_gliders([],options,self.config)
             self.config['gliders']=gliders
@@ -1054,6 +1056,8 @@ class Command(UI):
                           help="Setup a tunnel via ssh server", metavar="FILE")
         parser.add_option("-v","--version",action="store_true", dest="version",
                           help="Show version number and quit")
+        parser.add_option("-f",action="store", dest="config_filename",
+                          help="Use specified configuration file.", metavar = "FILE")
         return parser.parse_args()
         
     def help(self):
