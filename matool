@@ -400,10 +400,13 @@ class MaEdit(BaseAction):
         # if the author is specified, update self.user
         if len(args)==3:
             self.user = args[2]
-        print("Debug self.user:",self.user)
         
     def run(self):
-        self.set_glider(self.glider)
+        try:
+            self.set_glider(self.glider)
+        except ValueError as e:
+            print(e)
+            return 0 
         self.client = ma_edit.Ma_Edit_Client(self.glider,
                                              self.filename,
                                              self.revision,
@@ -437,7 +440,11 @@ class MaLog(BaseAction):
             self.user = args[1]
 
     def run(self):
-        self.set_glider(self.glider)
+        try:
+            self.set_glider(self.glider)
+        except ValueError as e:
+            print(e)
+            return 
         self.client = ma_edit.Ma_Edit_Log_Client(self.glider,
                                                  self.user,
                                                  self.host,
@@ -500,7 +507,11 @@ class MaImport(BaseAction):
             self.glider = args[-1]
 
     def run(self):
-        self.set_glider(self.glider)
+        try:
+            self.set_glider(self.glider)
+        except ValueError as e:
+            print(e)
+            return 
         self.client = ma_edit.Ma_Edit_Import(self.glider,
                                              self.user,
                                              self.host,
@@ -508,7 +519,9 @@ class MaImport(BaseAction):
         self.check_connection()
         for f in self.filenames:
             print("About to import %s..."%(f))
-            self.client.upload(f)
+            r=self.client.upload(f)
+            if r=!1:
+                print("Upload failed. File not found.")
 
     def help(self):
         ''' print help'''
@@ -545,7 +558,11 @@ class MaShow(BaseAction):
             
     def run(self):
         if self.action!='missionlog': # don't check we have a valid glider
-            self.set_glider(self.glider)
+            try:
+                self.set_glider(self.glider)
+            except ValueError as e:
+                print(e)
+                return 
         self.client = ma_edit.Ma_Status_Client(self.host,self.port)
         self.check_connection()
         if self.action in ['current','c']:
@@ -587,7 +604,11 @@ class MaDiff(BaseAction):
             self.revision_y=""
             
     def run(self):
-        self.set_glider(self.glider)
+        try:
+            self.set_glider(self.glider)
+        except ValueError as e:
+            print(e)
+            return 
         self.client = ma_edit.Ma_Status_Client(self.host,self.port)
         self.check_connection()
         fn=self.filename+".%03d"%(int(self.revision_x))
@@ -641,7 +662,11 @@ class MaExport(MaShow):
             self._write(filename,content)
             
     def run(self):
-        self.set_glider(self.glider)
+        try:
+            self.set_glider(self.glider)
+        except ValueError as e:
+            print(e)
+            return 
         self.client = ma_edit.Ma_Status_Client(self.host,self.port)
         self.check_connection()
         if self.filename=="*":
@@ -686,7 +711,11 @@ class MaStatus(BaseAction):
 
     def run(self):
         if self.glider:
-            self.set_glider(self.glider)
+            try:
+                  self.set_glider(self.glider)
+            except ValueError as e:
+                  print(e)
+            return 
         self.client = ma_edit.Ma_Status_Client(self.host,self.port)
         self.check_connection()
         r=self.client.status()
@@ -725,7 +754,11 @@ class MaList(BaseAction):
         self.glider = args[0]
 
     def get_lof(self):
-        self.set_glider(self.glider)
+        try:
+            self.set_glider(self.glider)
+        except ValueError as e:
+            print(e)
+            return [],[]
         self.client = ma_edit.Ma_Status_Client(self.host,self.port)
         self.check_connection()
         lof,revisions=self.client.fileList(self.glider)
@@ -828,7 +861,11 @@ class MaXML(BaseAction):
             scripts=self.client.get_xmlscripts()
             self.show_result(scripts)
         else:
-            self.set_glider(self.glider)
+            try:
+                self.set_glider(self.glider)
+            except ValueError as e:
+                print(e)
+                return
             self.client = ma_edit.Ma_XML_Client(self.host,self.port)
             self.check_connection()
             if self.action in ['show']:
@@ -876,7 +913,11 @@ class MaDelete(BaseAction):
         self.glider = args[1]
 
     def run(self):
-        self.set_glider(self.glider)
+        try:
+            self.set_glider(self.glider)
+        except ValueError as e:
+            print(e)
+            return
         self.client = ma_edit.Ma_Status_Client(self.host,self.port)
         self.check_connection()
         r = self.client.delete(self.glider,self.filename)
@@ -948,7 +989,9 @@ class Command(UI):
             configuration=Configurator(options.config_filename)
             self.config=configuration.read_config()
             self.set_host(self.config['host'])
-            if args and not args[0] == 'help':
+            if args and args[0] == 'help':
+                pass # asking for help only, no need to fetch glider info.
+            else:
                 gliders=self.get_gliders([],options,self.config)
                 self.config['gliders']=gliders
             while 1:
@@ -1001,7 +1044,6 @@ class Command(UI):
                 # add current revision number
                 args_to_MaDiff+=[task.current_revision]
                 # change parameters such that log command is run.
-                print("Debug: remaining",remaining_args)
                 remaining_args=remaining_args[1:]
                 command='log'
                 try:

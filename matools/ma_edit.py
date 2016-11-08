@@ -296,9 +296,13 @@ class Ma_Edit_Import(Client):
 
 
     def returnFile(self,ticket,tmpfn):
-        fd = open(tmpfn,'r')
-        content = "".join(fd.readlines())
-        fd.close()
+        try:
+            fd = open(tmpfn,'r')
+        except FileNotFoundError:
+            return 0
+        else:
+            content = "".join(fd.readlines())
+            fd.close()
         returnmafile=xmlprotocol.ReturnMafile()
         returnmafile.add_content(ticket,content)
         msg = returnmafile()

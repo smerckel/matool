@@ -260,7 +260,7 @@ class Ma_Edit(object):
         pattern="%s*"%(fn)
         matches=glob.glob(pattern)
         # remove all custom-made and other alternations:
-        matches = [i for i in matches if re.search("\.ma\.[0-9]*$",i)]
+        matches = [i for i in matches if re.search("\.[a-z]*\.[0-9]*$",i)]
         if matches:
             matches.sort()
             lastfn=matches[-1]
@@ -470,12 +470,13 @@ class Ma_Edit(object):
                 if (glider,filename) in self.queue:
                     r|=xmlprotocol.OVERWRITE
                 self.queue[(glider,filename)]=(content,user)
-                #write the origal file content next sequential file
-                self.writeToRepository(glider,filename,origContent,
-                                       mode='sequential')
                 # and then write the new stuff as the real name.
                 self.writeToRepository(glider,filename,content,
                                        mode='canonical')
+                #write the origal file content next sequential file
+                self.writeToRepository(glider,filename,origContent,
+                                       mode='sequential')
+
         else:
             r = xmlprotocol.INVALIDTICKET
         return r
