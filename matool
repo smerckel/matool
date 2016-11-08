@@ -66,8 +66,9 @@ diff     gliders
 xml      missionlog
 
 Options:
-    -s,--viassh <hostname>
-         Builds up a connection via ssh
+  -h, --help            show help message and exit
+  -v, --version         Show version number and quit
+  -f FILE               Use specified configuration file instead of default .matoolrc
 
 For more detailed help use:
 
@@ -241,7 +242,7 @@ class Configurator(object):
             try:
                 self.sshserver=config.get('Ssh','server')
             except NoOptionError:
-                self.sshserver='none'
+                self.sshserver=None
             try:
                 self.port_local = config.getint('Ssh','localport')
             except NoOptionError:
@@ -253,7 +254,7 @@ class Configurator(object):
 
         except NoSectionError:
             self.gracetime=0
-            self.sshserver='none'
+            self.sshserver=None
             self.port_local=self.port
             self.user_ssh=None
         try:
@@ -279,21 +280,19 @@ class BaseAction(object):
         self.port_local=configuration['port_local']
         self.user=configuration['user']
         self.editor=configuration['editor']
-        sshserver=configuration['sshserver']
-        sshuser=configuration['user_ssh']
+        sshserver = configuration['sshserver']
+        sshuser = configuration['user_ssh']
         self.client_options=client_options
         self.result=None
         self.client=None
         self.gliders=configuration['gliders']
         # if help is requested, show that and nothing more.
+        print(args)
+        Q
         if not self.check_for_help(args):
             self.tunnel_agent=None
-            if options.sshserver or sshserver.lower()!='none':
-                if options.sshserver:
-                    sshhost=options.sshserver
-                else:
-                    sshhost=sshserver
-                self.setup_tunnel_agent(sshhost,sshuser,
+            if sshserver:
+                self.setup_tunnel_agent(sshserver,sshuser,
                                         self.gracetime)
             self.parse_remaining_args(args)
             self.result=self.run()
@@ -375,13 +374,15 @@ class BaseAction(object):
             should remain alive.
         '''
         ma_server=self.host
-        self.host='localhost'
         self.tunnel_agent=ma_os.TunnelAgent(hostname,
                                             username,
                                             self.port_local,
                                             ma_server,
                                             self.port,
                                             gracetime)
+        self.host='localhost'
+        self.port=self.port_local
+        print("port host:",self.host, self.port)
                                             
 
 class MaEdit(BaseAction):
@@ -896,6 +897,11 @@ class UI(object):
     to provide an alternative to supplying command line arguments.'''
     def __init__(self):
         self.welcomed=False
+        self.host = ""
+        
+    def set_host(self,hostname):
+        self.host = hostname
+        
     def welcome(self,force=False):
         if force or not self.welcomed:
             self.welcomed=True
@@ -927,7 +933,7 @@ q | quit to quit
     def read(self):
         ''' read the arguments form the interactive cli.'''
         while 1:
-            cli = input("> ")
+            cli = input("[%s] > "%(self.host))
             args=cli.split()
             if args:
                 break
@@ -945,8 +951,10 @@ class Command(UI):
         else:
             configuration=Configurator(options.config_filename)
             self.config=configuration.read_config()
-            gliders=self.get_gliders([],options,self.config)
-            self.config['gliders']=gliders
+            self.set_host(self.config['host'])
+            if args and not args[0] == 'help':
+                gliders=self.get_gliders([],options,self.config)
+                self.config['gliders']=gliders
             while 1:
                 # get the command and its arguments
                 command,remaining_args = self.get_command(args)
@@ -1051,9 +1059,6 @@ class Command(UI):
 
     def get_options(self):
         parser = OptionParser()
-        parser.add_option("-s", "--viassh", dest="sshserver",
-                          action="store",
-                          help="Setup a tunnel via ssh server", metavar="FILE")
         parser.add_option("-v","--version",action="store_true", dest="version",
                           help="Show version number and quit")
         parser.add_option("-f",action="store", dest="config_filename",
@@ -1067,12 +1072,5 @@ class Command(UI):
 
 
 if __name__=='__main__':
-    if 0:
-        try:
-            cmd = Command()
-        except Exception as e:
-            print(e)
-            sys.exit(0)
-    else:
-        cmd = Command()
+    cmd = Command()
         
