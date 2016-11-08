@@ -75,7 +75,8 @@ class Emailer(object):
         self.sender=sender
         self.smtpserver=smtpserver
         self.receivers=receivers
-        self.login()
+        if sender and smtpserver:
+            self.login()
         if not receivers or not sender or not smtpserver:
             sys.stderr.write("Email facility not properly configured!\n")
             self.status=False
@@ -141,13 +142,23 @@ class Ma_Edit(object):
             self.gliderdirectory = config.get('Paths','gliderdirectory')
             self.repository = config.get('Paths','repository')
             logfile=config.get('Paths','logfile')
-            smtpserver=config.get('Email','smtpserver')
-            sender=config.get('Email','sender')
-            tmp=config.get('Email','receivers')
-            receivers=tmp.replace(',',' ').split()
-            #dockserver=config.get('Dockserver','dockserver')
-            #port=int(config.get('Dockserver','port'))
-            #senderID=config.get('Dockserver','senderID')
+            try:
+                smtpserver=config.get('Email','smtpserver')
+            except configparser.NoSectionError:
+                smtpserver = None
+            else:
+                sender=config.get('Email','sender')
+                tmp=config.get('Email','receivers')
+                receivers=tmp.replace(',',' ').split()
+            try:
+                dockserver=config.get('Dockserver','dockserver')
+            except configparser.NoSectionError:
+                dockserver=Defaults['dockserver']
+                port=Defaults['port']
+                senderID=Defaults['senderID']
+            else:
+                port=int(config.get('Dockserver','port'))
+                senderID=config.get('Dockserver','senderID')
         else:
             HD=os.environ["HOME"]
             self.gliderdirectory=os.path.join(HD,Defaults['gliderdirectory'])
@@ -185,9 +196,12 @@ class Ma_Edit(object):
         self.queue = {}
         self.fd = open(logfile,'w')
         self.configuration=config
-        self.emailer=Emailer(receivers=receivers,
-                             sender=sender,
-                             smtpserver=smtpserver)
+        if smtpserver:
+            self.emailer=Emailer(receivers=receivers,
+                                 sender=sender,
+                                 smtpserver=smtpserver)
+        else:
+            self.emailer = Emailer()
         
     def __nextFile(self,glider,filename):
         ''' returns next sequential filename '''
