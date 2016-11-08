@@ -340,7 +340,7 @@ class Ma_Edit(object):
         for gpath in gliders:
             pattern=os.path.join(gpath,"to-glider","*")
             fns+=glob.glob(pattern)
-        answer=True
+        answer=False
         for fn in fns:
             if interactive:
                 answer=input("Add %s to the queue? "%(fn)) in ['y','Y']
@@ -1016,7 +1016,7 @@ class Server(Ma_Edit):
 # main program #
 
 s = Server()
-s.syncDirAndQue()
+s.syncDirAndQue(interactive = False)
 s.setupDockserverWatchDog(60)
 s.run()
         
