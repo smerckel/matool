@@ -287,8 +287,6 @@ class BaseAction(object):
         self.client=None
         self.gliders=configuration['gliders']
         # if help is requested, show that and nothing more.
-        print(args)
-        Q
         if not self.check_for_help(args):
             self.tunnel_agent=None
             if sshserver:
@@ -382,8 +380,6 @@ class BaseAction(object):
                                             gracetime)
         self.host='localhost'
         self.port=self.port_local
-        print("port host:",self.host, self.port)
-                                            
 
 class MaEdit(BaseAction):
     ''' A class subclassed from BaseAction to edit ma/mi files'''
