@@ -520,7 +520,7 @@ class MaImport(BaseAction):
         for f in self.filenames:
             print("About to import %s..."%(f))
             r=self.client.upload(f)
-            if r=!1:
+            if r!=1:
                 print("Upload failed. File not found.")
 
     def help(self):
