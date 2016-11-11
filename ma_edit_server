@@ -57,8 +57,9 @@ import dockserverTalk.dockserverTalk as DT
 # Modify these three variables to suit your situation:
 
 
-ConfigFile=os.path.join(os.environ['HOME'],'.ma_edit_serverrc')
+ConfigFile=os.path.join('/usr/local/etc/','ma_edit_serverrc')
 Defaults={'gliderdirectory':'gliders',
+          'directory':'/var/run/ma_edit_server',
           'repository':'repository',
           'logfile':"ma_edit_server.log",
           'smtpserver':'localhost',
@@ -138,6 +139,11 @@ class Ma_Edit(object):
     def __init__(self):
         config = configparser.ConfigParser(Defaults)
         cnfs=config.read(ConfigFile)
+        #HD=os.environ["HOME"]
+        HD = Defaults['directory']
+        self.checkPath(HD)
+        
+
         if cnfs:
             self.gliderdirectory = config.get('Paths','gliderdirectory')
             self.repository = config.get('Paths','repository')
@@ -160,7 +166,6 @@ class Ma_Edit(object):
                 port=int(config.get('Dockserver','port'))
                 senderID=config.get('Dockserver','senderID')
         else:
-            HD=os.environ["HOME"]
             self.gliderdirectory=os.path.join(HD,Defaults['gliderdirectory'])
             self.repository=os.path.join(HD,Defaults['repository'])
             logfile=os.path.join(HD,Defaults['logfile'])
@@ -189,12 +194,12 @@ class Ma_Edit(object):
             fp=open(ConfigFile,'w')
             newconfig.write(fp)
             fp.close()
+        self.fd = open(logfile,'w')
         self.dialogs={}
-        self.reloadHistoryFile="ma_edit_server_reload.txt"
+        self.reloadHistoryFile=os.path.join(HD,"ma_edit_server_reload.txt")
         self.checkRepository()
         self.cache = {}
         self.queue = {}
-        self.fd = open(logfile,'w')
         self.configuration=config
         if smtpserver:
             self.emailer=Emailer(receivers=receivers,
