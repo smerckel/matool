@@ -59,13 +59,13 @@ import dockserverTalk.dockserverTalk as DT
 
 ConfigFile=os.path.join('/usr/local/etc/','ma_edit_serverrc')
 Defaults={'gliderdirectory':'gliders',
-          'directory':'/var/run/ma_edit_server',
+          'directory':'/var/local/ma_edit_server',
           'repository':'repository',
           'logfile':"ma_edit_server.log",
           'smtpserver':'localhost',
           'receivers':[],
           'sender':'localuser@dockserver',
-          'dockserver':"141.4.0.159",
+          'host':"141.4.0.159",
           'port':6564,
           'senderID':"ma_edit_server;0xb1gb1g" }
 
