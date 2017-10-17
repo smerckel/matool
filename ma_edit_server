@@ -57,7 +57,10 @@ import dockserverTalk.dockserverTalk as DT
 # Modify these three variables to suit your situation:
 
 
-ConfigFile=os.path.join('/usr/local/etc/','ma_edit_serverrc')
+ConfigFiles=[os.path.join('/usr/local/etc/','ma_edit_serverrc'),
+             os.path.join(os.environ['HOME'],'.ma_edit_serverrc')
+             ]
+
 Defaults={'gliderdirectory':'gliders',
           'directory':'/var/local/ma_edit_server',
           'repository':'repository',
@@ -65,7 +68,7 @@ Defaults={'gliderdirectory':'gliders',
           'smtpserver':'localhost',
           'receivers':[],
           'sender':'localuser@dockserver',
-          'host':"141.4.0.159",
+          'dockserver':"141.4.0.159",
           'port':6564,
           'senderID':"ma_edit_server;0xb1gb1g" }
 
@@ -79,14 +82,13 @@ class Emailer(object):
         if sender and smtpserver:
             self.login()
         if not receivers or not sender or not smtpserver:
-            sys.stderr.write("Email facility not properly configured!\n")
             self.status=False
         else:
             self.status=True
 
     def login(self):
         print("Email will be sent as user %s."%(self.sender))
-        print("Edit the .ma_edit_rc file to change the sender.")
+        print("Edit the config file to change the sender.")
         self.password=getpass.getpass()
         
         
@@ -138,20 +140,36 @@ class Ma_Edit(object):
     
     def __init__(self):
         config = configparser.ConfigParser(Defaults)
-        cnfs=config.read(ConfigFile)
-        #HD=os.environ["HOME"]
-        HD = Defaults['directory']
-        self.checkPath(HD)
-        
+        cnfs=config.read(ConfigFiles)
+        HD = config.get('Paths','directory')
+        try:
+            self.checkPath(HD)
+        except PermissionError:
+            sys.stderr.write("Fatal: Insufficient permissions to modify directory %s.\n"%(HD))
+            sys.exit(1)
 
         if cnfs:
-            self.gliderdirectory = config.get('Paths','gliderdirectory')
-            self.repository = config.get('Paths','repository')
-            logfile=config.get('Paths','logfile')
+            p = config.get('Paths','gliderdirectory')
+            if p.startswith(os.path.sep):
+                self.gliderdirectory = p
+            else:
+                self.gliderdirectory = os.path.join(HD,p)
+            p = config.get('Paths','repository')
+            if p.startswith(os.path.sep):
+                self.repository = p
+            else:
+                self.repository = os.path.join(HD,p)
+            p = config.get('Paths','logfile')
+            if p.startswith(os.path.sep):
+                logfile = p
+            else:
+                logfile = os.path.join(HD,p)
             try:
                 smtpserver=config.get('Email','smtpserver')
             except configparser.NoSectionError:
                 smtpserver = None
+                sender = None
+                receivers = None
             else:
                 sender=config.get('Email','sender')
                 tmp=config.get('Email','receivers')
@@ -176,7 +194,7 @@ class Ma_Edit(object):
             port=Defaults['port']
             senderID=Defaults['senderID']
             print("Found no configuration file.")
-            print("I am going to write one with default settings to %s"%(ConfigFile))
+            print("I am going to write one with default settings to %s"%(ConfigFiles[0]))
             print("You may want to edit this file, though.")
             newconfig = configparser.ConfigParser()
             newconfig.add_section('Paths')
@@ -188,12 +206,13 @@ class Ma_Edit(object):
             newconfig.set('Email','smtpserver',smtpserver)
             newconfig.set('Email','sender',sender)
             newconfig.set('Email','receivers',receivers.__str__())
-            newconfig.set('Dockserver','dockserver',dockserver)
+            newconfig.set('Dockserver','host',dockserver)
             newconfig.set('Dockserver','port',"%d"%(port))
             newconfig.set('Dockserver','senderID',senderID)
             fp=open(ConfigFile,'w')
             newconfig.write(fp)
             fp.close()
+            
         self.fd = open(logfile,'w')
         self.dialogs={}
         self.reloadHistoryFile=os.path.join(HD,"ma_edit_server_reload.txt")
@@ -207,6 +226,35 @@ class Ma_Edit(object):
                                  smtpserver=smtpserver)
         else:
             self.emailer = Emailer()
+        config_summary=dict(cf = cnfs,
+                            gdir = self.gliderdirectory,
+                            rdir = self.repository,
+                            log = logfile,
+                            smtp = smtpserver,
+                            sender = sender,
+                            recv = receivers,
+                            dockserver = dockserver,
+                            port = port)
+                            
+        self.print_config(config_summary)
+
+    def print_config(self, config_summary):
+        print("Configuration summary:")
+        print("----------------------")
+        print()
+        print("Config file     :", config_summary["cf"])
+        print()
+              
+        print("Glider directory:", config_summary['gdir'])
+        print("Repository      :", config_summary['rdir'])
+        print("Log file        :", config_summary['log'])
+        print()
+        print("Dockserver      :", config_summary['dockserver'])
+        print("Dockserver port :", config_summary['port'])
+        print()
+        print("smtp server     :", config_summary['smtp'])
+        print("email sender    :", config_summary['sender'])
+        print("email recvs     :", config_summary['recv'])
         
     def __nextFile(self,glider,filename):
         ''' returns next sequential filename '''
