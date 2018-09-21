@@ -30,10 +30,12 @@ from configparser import NoSectionError, NoOptionError
 import os
 from time import sleep, ctime
 import difflib
+import datetime
+
 
 COMMANDS=["edit","show","queue","list","delete","log","diff","import",
           "export","gliders","xml","ls","help","menu","m","quit","q",
-          "missionlog"]
+          "missionlog", "tiddlywiki"]
 
 if sys.platform.startswith("linux"):
     from matools import ma_linux as ma_os
@@ -64,6 +66,7 @@ delete   menu
 log      quit     
 diff     gliders
 xml      missionlog
+tiddlywiki
 
 Options:
   -h, --help            show help message and exit
@@ -200,6 +203,12 @@ Command xml
 Command missionlog
 
     Opens an editor to enter mission general comments.
+""",'tiddlywiki':"""
+Command tiddlywiki
+
+    tiddlywiki <experiment_name>
+        Exports the logs of this repository into a tiddly wiki format.
+
 """
 }
 # definition of a base class. Specific classes inherit this class.
@@ -230,7 +239,7 @@ class Configurator(object):
 
     def read_config(self):
         # do some configuration stuff
-        config = configparser.SafeConfigParser(Defaults)
+        config = configparser.ConfigParser(Defaults)
         config.read(self.config_path)
         self.host = config.get('Network','host')
         self.port = config.getint('Network','port')
@@ -928,7 +937,70 @@ class MaDelete(BaseAction):
     def help(self):
         print(Help['delete'])
 
+class MaTiddlyWiki(BaseAction):
+    ''' a class subclassed from BaseAction to export the logs in tiddlywiki format'''
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
 
+    def parse_remaining_args(self,args):
+        if len(args)!=1:
+            self.help()
+            raise MatoolError('Parsing error!')
+        self.experiment = args[0]
+
+    def run(self):
+        self.client = ma_edit.Ma_Status_Client(self.host,self.port)
+        self.check_connection()
+        self.write_header()
+        for k in ["mission"] + self.gliders:
+            content=self.client.anyfile(k,"log.txt")
+            if content:
+                self.write(k, content)
+
+    def write(self, k,content):
+        sys.stdout.write("!!{}\n".format(k))
+        state=0
+        for line in content.split("\n"):
+            if line.startswith('---------- MARK ----------'):
+                state+=1
+                continue
+            if line.startswith(" Date") or line.startswith(" Author"):
+                state+=1
+            if state==0:
+                sys.stdout.write("%s\n"%(line))
+            elif state==1:
+                pass
+            elif state==2:
+                sys.stdout.write("!!!{}\n".format(line.replace(" Date  : ", "")))
+            elif state==3:
+                sys.stdout.write("%s\n"%(line))
+                state=0
+        
+    def write_header(self):
+        dt=datetime.datetime.utcnow()
+        sys.stdout.write("created: {:4d}{:02d}{:02d}{:02d}{:02d}{:02d}{:03d}\n".format(dt.year,
+                                                                                   dt.month,
+                                                                                   dt.day,
+                                                                                   dt.hour,
+                                                                                   dt.minute,
+                                                                                   dt.second,
+                                                                                   dt.microsecond//1000))
+        sys.stdout.write("modified: {:4d}{:02d}{:02d}{:02d}{:02d}{:02d}{:03d}\n".format(dt.year,
+                                                                                    dt.month,
+                                                                                    dt.day,
+                                                                                    dt.hour,
+                                                                                    dt.minute,
+                                                                                    dt.second,
+                                                                                    dt.microsecond//1000))
+        sys.stdout.write("tags: logs glider\n")
+        sys.stdout.write("title: Mission log {}\n\n".format(self.experiment))
+        sys.stdout.write("!Mission logs\n")
+
+        
+    def help(self):
+        print(Help['tiddlywiki'])
+
+    
 class UI(object):
     ''' a simplistic User Interface, mainly for use on windows
     to provide an alternative to supplying command line arguments.'''
@@ -959,6 +1031,7 @@ export <current|queue> <mafile> <glider>
 gliders
 xml <scripts|show <glider>|stop <glider>|start <script> <glider>>
 missionlog
+tiddlywiki
 
 ls
 help [command]
@@ -1068,6 +1141,8 @@ class Command(UI):
             task=MaGliderList(remaining_args,options,cf)
         elif command=='delete':
             task=MaDelete(remaining_args,options,cf)
+        elif command=='tiddlywiki':
+            task=MaTiddlyWiki(remaining_args,options,cf)
         elif command=='import':
             task=MaImport(remaining_args,options,cf)
         elif command=='export':
