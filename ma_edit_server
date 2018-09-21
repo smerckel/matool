@@ -19,7 +19,7 @@ logfile: where some comments are dumped for debugging.
 This is configured in the file ~/.ma_edit_serverrc and can look like
 
 [Paths]
-gliderdirectory=/home/lucas/gliders
+gliderdirectory=/home/localuser/gliders
 logfile=/home/lucas/ma_edit_server.log
 repository=/home/lucas/dockserver/repository
 
@@ -139,6 +139,7 @@ class DockserverWatchDog(Thread):
 class Ma_Edit(object):
     
     def __init__(self):
+        print("Reading configuration file:", ConfigFile)
         config = configparser.ConfigParser(Defaults)
         cnfs=config.read(ConfigFiles)
         HD = config.get('Paths','directory')
@@ -188,9 +189,10 @@ class Ma_Edit(object):
             self.repository=os.path.join(HD,Defaults['repository'])
             logfile=os.path.join(HD,Defaults['logfile'])
             smtpserver=Defaults['smtpserver']
+            smtpserver=None
             sender=Defaults['sender']
             receivers=Defaults['receivers']
-            dockserver=Defaults['dockserver']
+            dockserver=Defaults['host']
             port=Defaults['port']
             senderID=Defaults['senderID']
             print("Found no configuration file.")
@@ -376,9 +378,10 @@ class Ma_Edit(object):
             self.fd.write("Creating repository directory %s\n"%(self.repository))
             self.fd.flush()
 
-    def checkPath(self,path):
+    def checkPath(self,path, create_if_not_exists=True):
         if not os.path.exists(path):
-            os.makedirs(path)
+            if create_if_not_exists:
+                os.makedirs(path)
             return False
         else:
             return True
@@ -416,7 +419,7 @@ class Ma_Edit(object):
     
     def retrieveFile(self,glider,filename):
         p = os.path.join(self.repository,glider)
-        self.checkPath(p)
+        self.checkPath(p, create_if_not_exists=False)
         f = os.path.join(p,filename)
         if os.path.exists(f):
             fd = open(f,'r')
