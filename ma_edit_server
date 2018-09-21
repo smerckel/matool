@@ -331,9 +331,10 @@ class Ma_Edit(object):
             self.fd.write("Creating repository directory %s\n"%(self.repository))
             self.fd.flush()
 
-    def checkPath(self,path):
+    def checkPath(self,path, create_if_not_exists=True):
         if not os.path.exists(path):
-            os.makedirs(path)
+            if create_if_not_exists:
+                os.makedirs(path)
             return False
         else:
             return True
@@ -371,7 +372,7 @@ class Ma_Edit(object):
     
     def retrieveFile(self,glider,filename):
         p = os.path.join(self.repository,glider)
-        self.checkPath(p)
+        self.checkPath(p, create_if_not_exists=False)
         f = os.path.join(p,filename)
         if os.path.exists(f):
             fd = open(f,'r')
