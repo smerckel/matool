@@ -959,10 +959,12 @@ class MaTiddlyWiki(BaseAction):
 
     def write(self, k,content):
         sys.stdout.write("!!{}\n".format(k))
-        state=0
+        state=-1
         for line in content.split("\n"):
             if line.startswith('---------- MARK ----------'):
-                state+=1
+                if state==0:
+                    sys.stdout.write("<<<\n\n")
+                state=1
                 continue
             if line.startswith(" Date") or line.startswith(" Author"):
                 state+=1
@@ -973,9 +975,11 @@ class MaTiddlyWiki(BaseAction):
             elif state==2:
                 sys.stdout.write("!!!{}\n".format(line.replace(" Date  : ", "")))
             elif state==3:
-                sys.stdout.write("%s\n"%(line))
+                sys.stdout.write("%s\n\n<<<\n\n"%(line))
                 state=0
-        
+        if state>=0:
+            sys.stdout.write("<<<\n\n")
+            
     def write_header(self):
         dt=datetime.datetime.utcnow()
         sys.stdout.write("created: {:4d}{:02d}{:02d}{:02d}{:02d}{:02d}{:03d}\n".format(dt.year,
