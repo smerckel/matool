@@ -139,9 +139,12 @@ class DockserverWatchDog(Thread):
 class Ma_Edit(object):
     
     def __init__(self):
-        print("Reading configuration file:", ConfigFile)
         config = configparser.ConfigParser(Defaults)
         cnfs=config.read(ConfigFiles)
+        print("Reading configuration file(s):")
+        for s in cnfs:
+            print("\t{}".format(s))
+
         HD = config.get('Paths','directory')
         try:
             self.checkPath(HD)
@@ -214,8 +217,9 @@ class Ma_Edit(object):
             fp=open(ConfigFile,'w')
             newconfig.write(fp)
             fp.close()
-            
-        self.fd = open(logfile,'w')
+
+        print("Opening logfile:", logfile)
+        self.fd = open(logfile,'a')
         self.dialogs={}
         self.reloadHistoryFile=os.path.join(HD,"ma_edit_server_reload.txt")
         self.checkRepository()
@@ -1041,14 +1045,17 @@ class Server(Ma_Edit):
             answer = resp.toxml()
         else:
             raise ValueError('unknown response')
-        return answer
+        return answer, r.type, r.action
 
-            
-    def run(self):
-        self.fd.write("ma_edit_server started at %s.\n"%(time.ctime()))
+    def logger(self, m):
+        self.fd.write("{}: {}\n".format(time.ctime(),m))
         self.fd.flush()
+        
+    def run(self):
+        self.logger("Ma_edit_server started.")
         while True:
             client,addr = self.s.accept()
+            self.logger("Connection received from {}.".format(addr[0]))
             hello="%sV%-8s"%(xmlprotocol.ID,__VERSION__)
             hellob=bytes(hello,encoding='utf-8')
             client.send(hellob)
@@ -1062,13 +1069,18 @@ class Server(Ma_Edit):
                             break
                         mesgb=client.recv(self.bufferLength)
                         mesg+=mesgb.decode('utf-8')
-                    answer = self.digest(mesg)
+                    answer, rtype, raction = self.digest(mesg)
+                    self.logger("Received {} for {} from {}.".format(rtype, raction, addr[0]))
                     answerb=bytes(answer,encoding='utf-8')
                     client.send(answerb)
             except error as e:
                 if e[0]!=104:
                     raise error(e)
+            except UnicodeDecodeError:
+                print("Invalid request from {}. Ignoring.".format(client.getpeername()[0]))
+                self.logger("Invalid request from {}. Ignoring.".format(addr[0]))
             client.close()
+            self.logger("Connection from {} closed.".format(addr[0]))
 
 # main program #
 
