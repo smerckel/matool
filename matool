@@ -1014,6 +1014,9 @@ class UI(object):
         
     def set_host(self,hostname):
         self.host = hostname
+
+    def set_port(self,port):
+        self.port = port
         
     def welcome(self,force=False):
         if force or not self.welcomed:
@@ -1065,7 +1068,14 @@ class Command(UI):
         else:
             configuration=Configurator(options.config_filename)
             self.config=configuration.read_config()
+            try:
+                self.config['host'] = options.remote_ma_editserver
+            except AttributeError:
+                pass
+            else:
+                self.config['sshserver']=None
             self.set_host(self.config['host'])
+            self.set_port(self.config['port'])
             if args and args[0] == 'help':
                 pass # asking for help only, no need to fetch glider info.
             else:
@@ -1089,8 +1099,8 @@ class Command(UI):
         sys.stderr.write(s)
 
     def get_gliders(self,args,options,configuration):
-        host=configuration['host']
-        port=configuration['port']
+        host=self.host
+        port=self.port
         BA=BaseAction(args,options,configuration,client_options=[])
         BA.client=ma_edit.Ma_Status_Client(BA.host,BA.port)
         BA.check_connection()
@@ -1176,6 +1186,8 @@ class Command(UI):
 
     def get_options(self):
         parser = OptionParser()
+        parser.add_option("-s",action="store", dest="remote_ma_editserver",
+                          help="Sets the remote ma_editserver to use")
         parser.add_option("-v","--version",action="store_true", dest="version",
                           help="Show version number and quit")
         parser.add_option("-f",action="store", dest="config_filename",
