@@ -1068,11 +1068,8 @@ class Command(UI):
         else:
             configuration=Configurator(options.config_filename)
             self.config=configuration.read_config()
-            try:
+            if not options.remote_ma_editserver is None:
                 self.config['host'] = options.remote_ma_editserver
-            except AttributeError:
-                pass
-            else:
                 self.config['sshserver']=None
             self.set_host(self.config['host'])
             self.set_port(self.config['port'])
