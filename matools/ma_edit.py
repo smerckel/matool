@@ -300,6 +300,8 @@ class Ma_Edit_Import(Client):
             fd = open(tmpfn,'r')
         except FileNotFoundError:
             return 0
+        except IsADirectoryError:
+            return 0
         else:
             content = "".join(fd.readlines())
             fd.close()
