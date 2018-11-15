@@ -79,17 +79,29 @@ class Emailer(object):
         self.sender=sender
         self.smtpserver=smtpserver
         self.receivers=receivers
-        if sender and smtpserver:
-            self.login()
         if not receivers or not sender or not smtpserver:
             self.status=False
         else:
             self.status=True
+            self.login()
 
     def login(self):
         print("Email will be sent as user %s."%(self.sender))
         print("Edit the config file to change the sender.")
         self.password=getpass.getpass()
+        try:
+            s = smtplib.SMTP(self.smtpserver)
+        except:
+            sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
+            return 
+        try:
+            s.login(self.sender,self.password)
+        except smtplib.SMTPAuthenticationError as err:
+            sys.stderr.write("Failed to login.\nError was:\n%s\n"%(err))
+            sys.stderr.write("Email facility defunctional.\n")
+            self.status=False
+        else:
+            s.quit()
         
         
     def add_receiver(self,receiver):
@@ -927,9 +939,9 @@ class Server(Ma_Edit):
             ticket = d['ticket']
             content = r.packet.getElementsByTagName('content')[0]
             t = "".join([i.nodeValue for i in content.childNodes])
-            r = self.processReturnedMafile(ticket,t)
+            res = self.processReturnedMafile(ticket,t)
             resp = xmlprotocol.ResponseReturnMafile()
-            resp.set_results(r)
+            resp.set_results(res)
             answer = resp.toxml()
         elif r.type=='request' and r.action=='logfile':
             d = dict((k,v) for k,v in r.children['logfile'])
@@ -941,9 +953,9 @@ class Server(Ma_Edit):
             ticket = d['ticket']
             content = r.packet.getElementsByTagName('content')[0]
             t = "".join([i.nodeValue for i in content.childNodes])
-            r = self.processReturnedLogfile(ticket,t)
+            res = self.processReturnedLogfile(ticket,t)
             resp = xmlprotocol.ResponseReturnLogfile()
-            resp.set_results(r)
+            resp.set_results(res)
             answer = resp.toxml()
         elif r.type=='request' and r.action=='queuestatus':
             resp = xmlprotocol.ResponseQueueStatus()
@@ -1062,23 +1074,31 @@ class Server(Ma_Edit):
             self.checkFilesRemovedByDockserver()
             try:
                 mesgb = client.recv(self.bufferLength)
-                mesg=mesgb.decode('utf-8')
-                if mesg:
-                    while True:
-                        if mesg.endswith('</packet>'):
-                            break
-                        mesgb=client.recv(self.bufferLength)
-                        mesg+=mesgb.decode('utf-8')
-                    answer, rtype, raction = self.digest(mesg)
-                    self.logger("Received {} for {} from {}.".format(rtype, raction, addr[0]))
-                    answerb=bytes(answer,encoding='utf-8')
-                    client.send(answerb)
             except error as e:
                 if e[0]!=104:
                     raise error(e)
+                client.close()
+                self.logger("Connection from {} closed.".format(addr[0]))
+                continue # wait for new connection
+            try:
+                mesg=mesgb.decode('utf-8')
             except UnicodeDecodeError:
                 print("Invalid request from {}. Ignoring.".format(client.getpeername()[0]))
                 self.logger("Invalid request from {}. Ignoring.".format(addr[0]))
+                client.close()
+                self.logger("Connection from {} closed.".format(addr[0]))
+                continue
+            
+            if mesg:
+                while True:
+                    if mesg.endswith('</packet>'):
+                        break
+                    mesgb=client.recv(self.bufferLength)
+                    mesg+=mesgb.decode('utf-8')
+                answer, rtype, raction = self.digest(mesg)
+                self.logger("Received {} for {} from {}.".format(rtype, raction, addr[0]))
+                answerb=bytes(answer,encoding='utf-8')
+                client.send(answerb)
             client.close()
             self.logger("Connection from {} closed.".format(addr[0]))
 
