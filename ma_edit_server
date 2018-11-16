@@ -446,6 +446,17 @@ class Ma_Edit(object):
         content = "".join(lines)
         return f, content
 
+    def retrieveFileFromGliderDir(self, glider, filename):
+        f = os.path.join(self.gliderdirectory,glider,'from-glider',filename)
+        if os.path.exists(f):
+            fd = open(f,'r')
+            lines=fd.readlines()
+            fd.close()
+        else:
+            lines=[]
+        content = "".join(lines)
+        return f, content
+
     def getFileList(self,glider,timestamp=None):
         pma = os.path.join(self.repository,glider,'*.ma')
         pmi = os.path.join(self.repository,glider,'*.mi')
@@ -496,6 +507,14 @@ class Ma_Edit(object):
         self.addToCache(ticket,(fn,glider,filename,user,content))
         revision=self.getRevision(filename,glider)
         xml = xmlprotocol.ResponseMafile(content,ticket,revision)
+        return xml.toxml()
+
+    def respondRemoteMafile(self,glider,filename,user):
+        fn,content = self.retrieveFileFromGliderDir(glider,filename)
+        ticket =self.get_ticket()
+        self.addToCache(ticket,(fn,glider,filename,user,content))
+        revision=self.getRevision(filename,glider)
+        xml = xmlprotocol.ResponseRemoteMafile(content,ticket,revision)
         return xml.toxml()
 
     def respondLogfile(self,glider,user):
@@ -934,6 +953,12 @@ class Server(Ma_Edit):
             glider = d['glider']
             filename = d['filename']
             answer = self.respondMafile(glider,filename,user)
+        elif r.type=='request' and r.action=='remotemafile':
+            d = dict((k,v) for k,v in r.children['mafile'])
+            user = d['author']
+            glider = d['glider']
+            filename = d['filename']
+            answer = self.respondRemoteMafile(glider,filename,user)
         elif r.type=='request' and r.action=='returnmafile':
             d = dict((k,v) for k,v in r.children['content'])
             ticket = d['ticket']

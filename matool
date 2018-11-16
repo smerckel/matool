@@ -35,7 +35,7 @@ import datetime
 
 COMMANDS=["edit","show","queue","list","delete","log","diff","import",
           "export","gliders","xml","ls","help","menu","m","quit","q",
-          "missionlog", "tiddlywiki"]
+          "missionlog", "tiddlywiki", "import-from"]
 
 if sys.platform.startswith("linux"):
     from matools import ma_linux as ma_os
@@ -58,15 +58,15 @@ Defaults={'host':'141.4.10.47',
 Help = {'general':"""
 Available commands:
 
-edit     import
-show     export
-queue    ls    
-list     help  
-delete   menu  
-log      quit     
-diff     gliders
-xml      missionlog
-tiddlywiki
+edit        import
+show        export
+queue       ls    
+list        help  
+delete      menu  
+log         quit     
+diff        gliders
+xml         missionlog
+edit-remote tiddlywiki
 
 Options:
   -h, --help            show help message and exit
@@ -209,6 +209,12 @@ Command tiddlywiki
     tiddlywiki <experiment_name>
         Exports the logs of this repository into a tiddly wiki format.
 
+""",'edit-remote':"""
+Command edit-remote
+
+    edit-remote <filename> <glider>
+        edits a file, which is read from the from-glider directory on the remote
+        server, and puts it under version control.
 """
 }
 # definition of a base class. Specific classes inherit this class.
@@ -526,11 +532,16 @@ class MaImport(BaseAction):
                                              self.host,
                                              self.port)
         self.check_connection()
+        success = []
         for f in self.filenames:
-            print("About to import %s..."%(f))
+            print("Immporting %s... "%(f), end="")
             r=self.client.upload(f)
             if r!=1:
-                print("Upload failed. File not found.")
+                print("Failed. File not found.")
+            else:
+                print("OK")
+                success.append(f)
+        #todo write in the logs that something was uploaded
 
     def help(self):
         ''' print help'''
@@ -1004,7 +1015,44 @@ class MaTiddlyWiki(BaseAction):
     def help(self):
         print(Help['tiddlywiki'])
 
-    
+
+class MaEditRemote(BaseAction):
+    ''' A class subclassed from BaseAction to edit a file from the remote 
+        from-glider directory.'''
+    def __init__(self,args,options,cf):
+        BaseAction.__init__(self,args,options,cf)
+
+    def parse_remaining_args(self,args):
+        if len(args)!=2:
+            self.help()
+            raise MatoolError('Parsing error!')
+        self.filename, self.glider = args
+
+    def run(self):
+        try:
+            self.set_glider(self.glider)
+        except ValueError as e:
+            print(e)
+            return 0 
+        self.client = ma_edit.Ma_Edit_Client(self.glider,
+                                             self.filename,
+                                             None,
+                                             self.user,
+                                             self.host,
+                                             self.port)
+        self.check_connection()
+        r,revision = self.client.edit(self.editor, remote=True)
+        self.current_revision=revision
+        msg=self.errorMesg(r)
+        for m in msg:
+            sys.stdout.write("%s\n"%(m))
+        return r&1 # returns 1 if "accept" is part of the error code.
+            
+    def help(self):
+        print(Help['current'])
+
+
+        
 class UI(object):
     ''' a simplistic User Interface, mainly for use on windows
     to provide an alternative to supplying command line arguments.'''
@@ -1039,7 +1087,7 @@ gliders
 xml <scripts|show <glider>|stop <glider>|start <script> <glider>>
 missionlog
 tiddlywiki
-
+edit-remote <filename> <glider>
 ls
 help [command]
 
@@ -1138,6 +1186,20 @@ class Command(UI):
                                                         revision)
                 taskDiff=MaDiffLocal(args_to_MaDiff,options,cf)
                 optional_info=taskDiff.diff+"\n\n"
+        if command=='edit-remote':
+            task=MaEditRemote(remaining_args,options,cf)
+            if task.result==1:
+                # change parameters such that log command is run.
+                remaining_args=remaining_args[1:]
+                command='log'
+                try:
+                    revision=int(task.current_revision)+1
+                except:
+                    revision=0
+                initial_text="Modified file: %s (revision %d)\n"%(task.filename,
+                                                        revision)
+                optional_info="Source: from-glider directory.\n\n"
+
         if command=='log':
             task=MaLog(remaining_args,options,cf,initial_text,optional_info)
         if command=='missionlog':

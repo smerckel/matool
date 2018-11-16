@@ -128,6 +128,31 @@ class ResponseMafile(XMLDoc):
         self.addAttribute(contentElement,"revision",revision)
         self.addChild(self.packet,contentElement,mafile)
 
+class SendRemoteMafile(XMLDoc):
+    ''' requesting for sending an mafile from server (from-glider directory)'''
+    def __init__(self,glider,mafile,author):
+        XMLDoc.__init__(self)
+        self.addAttribute(self.packet,"type","request")
+        self.addAttribute(self.packet,"action","remotemafile")
+        mafileElement=self.createElement('mafile')
+        self.addAttribute(mafileElement,"glider",glider)
+        self.addAttribute(mafileElement,"filename",mafile)
+        self.addAttribute(mafileElement,"author",author)
+        self.addChild(self.packet,mafileElement)
+
+
+class ResponseRemoteMafile(XMLDoc):
+    ''' server response and sending a remote mafile from-glider directory'''
+    def __init__(self,mafile,ticket,revision):
+        XMLDoc.__init__(self)
+        self.addAttribute(self.packet,"type","response")
+        self.addAttribute(self.packet,"action","remotemafile")
+        contentElement=self.createElement('content')
+        self.addAttribute(contentElement,"ticket",ticket)
+        self.addAttribute(contentElement,"revision",revision)
+        self.addChild(self.packet,contentElement,mafile)
+
+        
 class ReturnMafile(XMLDoc):
     ''' request for accepting a modified mafile'''
     def __init__(self):

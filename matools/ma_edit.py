@@ -142,9 +142,14 @@ class Ma_Edit_Client(Client):
         self.ticket=None
         self.xml_sendfile=xmlprotocol.SendMafile(glider,filename,user)
         self.xml_returnfile=xmlprotocol.ReturnMafile()
+        self.xml_sendremotefile=xmlprotocol.SendRemoteMafile(glider,filename,user)
 
-    def requestFile(self):
-        msg = self.xml_sendfile()
+
+    def requestFile(self, remote=False):
+        if not remote:
+            msg = self.xml_sendfile()
+        else:
+            msg = self.xml_sendremotefile()
         self.write(msg)
         answer=self.readlines()
         r = xmlprotocol.XMLReader()
@@ -216,9 +221,9 @@ class Ma_Edit_Client(Client):
             content=self.anyfile(self.glider,self.filename+".%03d"%(int(self.revision)))
         return content
 
-    def edit(self,editor):
+    def edit(self,editor, remote=False):
         self.connect()
-        ticket,content,revision =self.requestFile()
+        ticket,content,revision =self.requestFile(remote)
         self.close()
         content=self.pre_edit(content)
         a,tmpfn = self.invokeEditor(content,editor)
