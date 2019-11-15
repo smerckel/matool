@@ -98,7 +98,7 @@ class Emailer(object):
             s.login(self.sender,self.password)
         except smtplib.SMTPAuthenticationError as err:
             sys.stderr.write("Failed to login.\nError was:\n%s\n"%(err))
-            sys.stderr.write("Email facility defunctional.\n")
+            sys.stderr.write("Email facility dysfunctional.\n")
             self.status=False
         else:
             s.quit()
