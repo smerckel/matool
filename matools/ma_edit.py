@@ -201,10 +201,11 @@ class Ma_Edit_Client(Client):
             a=self.askToContinue("When finished editing (i.e. editor is closed), progagate changes (if any)? (y/n) ")
         return a,tmpname
 
-    def returnFile(self,ticket,tmpfn):
-        fd = open(tmpfn,'r')
-        content = "".join(fd.readlines())
-        fd.close()
+    def returnFile(self,ticket,tmpfn=None, content=''):
+        if not tmpfn is None:
+            fd = open(tmpfn,'r')
+            content = "".join(fd.readlines())
+            fd.close()
         self.xml_returnfile.add_content(ticket,content)
         msg = self.xml_returnfile()
         self.write(msg)
