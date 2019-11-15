@@ -534,7 +534,7 @@ class MaImport(BaseAction):
         self.check_connection()
         success = []
         for f in self.filenames:
-            print("Immporting %s... "%(f), end="")
+            print("Importing %s... "%(f), end="")
             r=self.client.upload(f)
             if r!=1:
                 print("Failed. File not found.")
