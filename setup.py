@@ -18,7 +18,7 @@ if sys.platform.startswith("linux"):
     setup(name="matools",
           version=version,
           packages = ["matools"],
-          scripts = ["matool","ma_edit_server","modlog.py"],
+          scripts = ["matool","ma_edit_server","modlog.py","ma_server.py"],
           author = "Lucas Merckelbach",
           author_email = "lucas.merckelbach@hzg.de",
           url = "dockserver0.hzg.de/software/software.html")
