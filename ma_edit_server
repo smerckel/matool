@@ -153,9 +153,9 @@ class Ma_Edit(object):
     def __init__(self):
         config = configparser.ConfigParser(Defaults)
         cnfs=config.read(ConfigFiles)
-        print("Reading configuration file(s):")
+        sys.stderr.write("Reading configuration file(s):\n")
         for s in cnfs:
-            print("\t{}".format(s))
+            sys.stderr.write("\t{}".format(s))
 
         HD = config.get('Paths','directory')
         try:
@@ -210,9 +210,9 @@ class Ma_Edit(object):
             dockserver=Defaults['host']
             port=Defaults['port']
             senderID=Defaults['senderID']
-            print("Found no configuration file.")
-            print("I am going to write one with default settings to %s"%(ConfigFiles[0]))
-            print("You may want to edit this file, though.")
+            sys.stderr.write("Found no configuration file.\n")
+            sys.stderr.write("I am going to write one with default settings to %s.\n"%(ConfigFiles[0]))
+            sys.stderr.write("You may want to edit this file, though.\n")
             newconfig = configparser.ConfigParser()
             newconfig.add_section('Paths')
             newconfig.add_section('Email')
@@ -230,7 +230,7 @@ class Ma_Edit(object):
             newconfig.write(fp)
             fp.close()
 
-        print("Opening logfile:", logfile)
+        sys.stderr.write(f"Opening logfile: {logfile}\n")
         self.fd = open(logfile,'a')
         self.dialogs={}
         self.reloadHistoryFile=os.path.join(HD,"ma_edit_server_reload.txt")
@@ -255,24 +255,25 @@ class Ma_Edit(object):
                             port = port)
                             
         self.print_config(config_summary)
+        self.print_config(config_summary, fd=self.fd)
 
-    def print_config(self, config_summary):
-        print("Configuration summary:")
-        print("----------------------")
-        print()
-        print("Config file     :", config_summary["cf"])
-        print()
+    def print_config(self, config_summary, fd=sys.stderr):
+        fd.write("Configuration summary:\n")
+        fd.write("----------------------\n")
+        fd.write("\n")
+        fd.write(f"Config file     : {config_summary['cf']}\n")
+        fd.write("\n")
               
-        print("Glider directory:", config_summary['gdir'])
-        print("Repository      :", config_summary['rdir'])
-        print("Log file        :", config_summary['log'])
-        print()
-        print("Dockserver      :", config_summary['dockserver'])
-        print("Dockserver port :", config_summary['port'])
-        print()
-        print("smtp server     :", config_summary['smtp'])
-        print("email sender    :", config_summary['sender'])
-        print("email recvs     :", config_summary['recv'])
+        fd.write(f"Glider directory:{config_summary['gdir']}\n")
+        fd.write(f"Repository      :{config_summary['rdir']}\n")
+        fd.write(f"Log file        :{config_summary['log']}\n")
+        fd.write("\n")
+        fd.write(f"Dockserver      :{config_summary['dockserver']}\n")
+        fd.write(f"Dockserver port :{config_summary['port']}\n")
+        fd.write("\n")
+        fd.write(f"smtp server     :{config_summary['smtp']}\n")
+        fd.write(f"email sender    :{config_summary['sender']}\n")
+        fd.write(f"email recvs     :{config_summary['recv']}\n\n")
         
     def __nextFile(self,glider,filename):
         ''' returns next sequential filename '''
@@ -285,8 +286,8 @@ class Ma_Edit(object):
 
     def __sequential_number_at_time(self,glider,basefn,timestamp):
         p = os.path.join(self.repository,glider,'history.txt')
-        fd=open(p,'r')
-        lines=[i for i in fd.readlines() if "Uploaded" in i and basefn in i]
+        with open(p,'r') as fd:
+            lines=[i for i in fd.readlines() if "Uploaded" in i and basefn in i]
         revision_str=None
         for line in lines:
             datestr,rest=line.replace(": Uploaded","|").split("|")
@@ -303,9 +304,8 @@ class Ma_Edit(object):
 
     def __sequential_number_at_time_with_mafiles(self,glider,basefn,timestamp):
         p = os.path.join(self.repository,glider,'history.txt')
-        fd=open(p,'r')
-        txt=fd.readlines()
-        fd.close()
+        with open(p,'r') as fd:
+            txt=fd.readlines()
         # find last mafiles reread action
         k=-1
         for i,v in enumerate(txt):
@@ -351,9 +351,8 @@ class Ma_Edit(object):
             os.makedirs(directory)
 
     def __writeContent(self,fn,content):
-        fd = open(fn,'w')
-        fd.write(content)
-        fd.close()
+        with open(fn,'w') as fd:
+            fd.write(content)
 
     def __writeHistory(self,glider,basefn,mode):
         p = os.path.join(self.repository,glider,'history.txt')
@@ -371,9 +370,8 @@ class Ma_Edit(object):
         else:
             s=""
         if s:
-            fd = open(p,'a')
-            fd.write(s)
-            fd.close()
+            with open(p,'a') as fd:
+                fd.write(s)
 
     def __readFileFromToGlider(self,fn):
         tmp = fn.replace(self.gliderdirectory,"")
@@ -385,9 +383,8 @@ class Ma_Edit(object):
         content=None
         if len(tmp)==2:
             glider,filename=tmp
-            fd=open(fn,'r')
-            lines=fd.readlines()
-            fd.close()
+            with open(fn,'r') as fd:
+                lines=fd.readlines()
             content="".join(lines)
         return glider,filename,content
 
@@ -445,9 +442,8 @@ class Ma_Edit(object):
         self.checkPath(p, create_if_not_exists=False)
         f = os.path.join(p,filename)
         if os.path.exists(f):
-            fd = open(f,'r')
-            lines=fd.readlines()
-            fd.close()
+            with open(f,'r') as fd:
+                lines=fd.readlines()
         else:
             lines=[]
         content = "".join(lines)
@@ -456,9 +452,8 @@ class Ma_Edit(object):
     def retrieveFileFromGliderDir(self, glider, filename):
         f = os.path.join(self.gliderdirectory,glider,'from-glider',filename)
         if os.path.exists(f):
-            fd = open(f,'r')
-            lines=fd.readlines()
-            fd.close()
+            with open(f,'r') as fd:
+                lines=fd.readlines()
         else:
             lines=[]
         content = "".join(lines)
@@ -634,10 +629,9 @@ class Ma_Edit(object):
         return errorCode
 
     def addReloadEvent(self,glider):
-        fd=open(self.reloadHistoryFile,'a')
-        s="%f %s %s\n"%(time.time(),glider,time.ctime())
-        fd.write(s)
-        fd.close()
+        with open(self.reloadHistoryFile,'a') as fd:
+            s="%f %s %s\n"%(time.time(),glider,time.ctime())
+            fd.write(s)
 
     def isReread(self,glider,since=12):
         if glider not in self.dialogs:
@@ -663,9 +657,8 @@ class Ma_Edit(object):
         logfiles=glob.glob(p)
         logfiles.sort()
         last_log_file=logfiles[-1]
-        fd=open(last_log_file,'r')
-        log=fd.readlines()
-        fd.close()
+        with open(last_log_file,'r') as fd:
+            log=fd.readlines()
         pickup=0
         for l in log:
             if "RESUMING MISSION" in l:
@@ -704,9 +697,8 @@ class Ma_Edit(object):
                     break
                 last_log_file=lf
         #
-        fd=open(last_log_file,'r')
-        log=fd.readlines()
-        fd.close()
+        with open(last_log_file,'r') as fd:
+            log=fd.readlines()
         # assume a pickup.
         pickup=1
         
@@ -1117,7 +1109,7 @@ class Server(Ma_Edit):
             try:
                 mesg=mesgb.decode('utf-8')
             except UnicodeDecodeError:
-                print("Invalid request from {}. Ignoring.".format(client.getpeername()[0]))
+                sys.stderr.write("Invalid request from {}. Ignoring.\n".format(client.getpeername()[0]))
                 self.logger("Invalid request from {}. Ignoring.".format(addr[0]))
                 client.close()
                 self.logger("Connection from {} closed.".format(addr[0]))
