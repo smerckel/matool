@@ -232,7 +232,7 @@ class Configurator(object):
         self.config_path = config_path
         
     def write_config_defaults(self):
-        config = configparser.SafeConfigParser()
+        config = configparser.ConfigParser()
         config.add_section('Network')
         config.set('Network','host',Defaults['host'])
         config.set('Network','port',"%d"%(Defaults['port']))
@@ -805,7 +805,8 @@ class MaList(BaseAction):
             lof.sort(key=self.key)
             originals=[f for f in lof if not f.endswith("current")]
             for i,f in enumerate(originals):
-                print("%2d %12s at rev. %03d"%(i,f,int(revisions[f])), end=' ')
+                previous_revision = max(-1, int(revisions[f])) # makes -2 -> -1
+                print("%2d %12s at rev. %03d"%(i,f,1+previous_revision), end=' ')
                 if f+".current" in lof:
                     print()
                 else:

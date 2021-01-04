@@ -278,6 +278,8 @@ class Ma_Edit(object):
         ''' returns next sequential filename '''
         fn=os.path.join(self.repository,glider,filename)
         i=self.__currentSequentialNumber(glider,filename)
+        if i==-2: # no files with this basename present yet.
+            return None 
         i+=1
         return fn+".%03d"%(i)
 
@@ -340,8 +342,13 @@ class Ma_Edit(object):
             except ValueError:
                 i=-1
         else:
-            i=-1
+            i=-2
         return i
+
+    def __create_directory_if_needed(self, fn):
+        directory, _ = os.path.split(fn)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
     def __writeContent(self,fn,content):
         fd = open(fn,'w')
@@ -545,10 +552,12 @@ class Ma_Edit(object):
             fn = os.path.join(self.repository,glider,basefilename)+".current"
         else:
             raise ValueError('Mode not supported')
-        self.__writeContent(fn,content)
-        self.__writeHistory(glider,basefilename,mode)
+        if not fn is None: # fn is None if trying to write a sequential file, if there are no files yet.
+            self.__create_directory_if_needed(fn)
+            self.__writeContent(fn,content)
+            self.__writeHistory(glider,basefilename,mode)
 
-
+            
     def processReturnedMafile(self,ticket,content):
         if ticket in self.cache:
             r = xmlprotocol.ACCEPT
@@ -561,12 +570,12 @@ class Ma_Edit(object):
                 if (glider,filename) in self.queue:
                     r|=xmlprotocol.OVERWRITE
                 self.queue[(glider,filename)]=(content,user)
-                # and then write the new stuff as the real name.
-                self.writeToRepository(glider,filename,content,
-                                       mode='canonical')
                 #write the origal file content next sequential file
                 self.writeToRepository(glider,filename,origContent,
                                        mode='sequential')
+                # and then write the new stuff as the real name.
+                self.writeToRepository(glider,filename,content,
+                                       mode='canonical')
 
         else:
             r = xmlprotocol.INVALIDTICKET
