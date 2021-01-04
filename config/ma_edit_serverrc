@@ -1,0 +1,17 @@
+[Paths]
+directory=/var/local/ma_edit_server
+gliderdirectory=/var/local/dockserver/gliders
+logfile=/var/local/ma_edit_server/ma_edit_server.log
+repository=repository
+
+#[Email]
+#smtpserver=localhost
+#receivers=[]
+
+[Dockserver]
+dockserver=localhost
+port=6564
+senderID=ma_edit_server;0xb1gb1g
+
+[Network]
+port=9000
