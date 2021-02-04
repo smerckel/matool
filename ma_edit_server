@@ -855,7 +855,7 @@ class Ma_Edit(object):
 
             
     def get_active_script(self,glider):
-        dockserver=self.configuration.get('Dockserver','host')
+        dockserver=self.configuration.get('Dockserver','dockserver')
         port=self.configuration.getint('Dockserver','port')
         senderID="test-dt;0xb1gb1g"
         t=DT.ThreadedDockserverComm(dockserver,glider,port,
@@ -872,7 +872,7 @@ class Ma_Edit(object):
 
 
     def stop_script(self,glider):
-        dockserver=self.configuration.get('Dockserver','host')
+        dockserver=self.configuration.get('Dockserver','dockserver')
         port=self.configuration.getint('Dockserver','port')
         senderID="test-dt;0xb1gb1g"
         t=DT.ThreadedDockserverComm(dockserver,glider,port,
@@ -911,7 +911,7 @@ class Ma_Edit(object):
             script=scriptlist[i]
             script_type=lt[i]
 
-        dockserver=self.configuration.get('Dockserver','host')
+        dockserver=self.configuration.get('Dockserver','dockserver')
         port=self.configuration.getint('Dockserver','port')
         senderID="test-dt;0xb1gb1g"
         t=DT.ThreadedDockserverComm(dockserver,glider,port,
