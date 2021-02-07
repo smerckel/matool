@@ -22,7 +22,7 @@ Lucas Merckelbach lucas.merckelbach@hzg.de
 
 import matools.ma_edit as ma_edit
 from matools import xmlprotocol
-from matools import __VERSION__
+from matools import __version__
 import sys
 import configparser
 from optparse import OptionParser
@@ -1070,7 +1070,7 @@ class UI(object):
     def welcome(self,force=False):
         if force or not self.welcomed:
             self.welcomed=True
-            print("                       MATOOL V%s"%(__VERSION__))
+            print("                       MATOOL V%s"%(__version__))
             print("""
 edit [rev <revision_number>] <mafile> <glider> [author]
 show <current|queue> <mafile> <glider>
@@ -1141,7 +1141,7 @@ class Command(UI):
                     break # invoked from cli arguments. We're finished.
 
     def show_version(self):
-        s="MA-EDIT Version %s\n"%(__VERSION__)
+        s="MA-EDIT Version %s\n"%(__version__)
         sys.stderr.write(s)
 
     def get_gliders(self,args,options,configuration):
