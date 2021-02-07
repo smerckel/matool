@@ -492,7 +492,7 @@ class Ma_Edit(object):
         return gliders
 
     def getScriptList(self):
-        dockserver=self.configuration.get('Dockserver','host')
+        dockserver=self.configuration.get('Dockserver','dockserver')
         port=self.configuration.getint('Dockserver','port')
         senderID="test-dt;0xb1gb1g"
         t=DT.ThreadedDockserverComm(dockserver,None,port,
