@@ -9,7 +9,7 @@ Lucas Merckelbach lucas.merckelbach@hzg.de
 
 import sys
 import matools
-version=matools.__VERSION__
+version=matools.__version__
 
 from distutils.core import setup
 

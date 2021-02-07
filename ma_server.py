@@ -28,7 +28,7 @@ lucas.merckelbach@hzg.de, 1 June 2011
 
 '''
 from matools import xmlprotocol
-from matools import __VERSION__
+from matools import __version__
 
 from socket import *
 import os
@@ -191,7 +191,7 @@ class Server(Ma_Edit):
         while True:
             client,addr = self.s.accept()
             self.logger("Connection received from {}.".format(addr[0]))
-            hello="%sV%-8s"%(xmlprotocol.ID,__VERSION__)
+            hello="%sV%-8s"%(xmlprotocol.ID,__version__)
             hellob=bytes(hello,encoding='utf-8')
             client.send(hellob)
             try:

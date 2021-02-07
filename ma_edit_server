@@ -34,7 +34,7 @@ lucas.merckelbach@hzg.de, 1 June 2011
 '''
 from matools import xmlprotocol
 from matools import dialog
-from matools import __VERSION__
+from matools import __version__
 import dbdreader
 
 from socket import *
@@ -1094,7 +1094,7 @@ class Server(Ma_Edit):
         while True:
             client,addr = self.s.accept()
             self.logger("Connection received from {}.".format(addr[0]))
-            hello="%sV%-8s"%(xmlprotocol.ID,__VERSION__)
+            hello="%sV%-8s"%(xmlprotocol.ID,__version__)
             hellob=bytes(hello,encoding='utf-8')
             client.send(hellob)
             self.checkFilesRemovedByDockserver()
