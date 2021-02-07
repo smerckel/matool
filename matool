@@ -35,7 +35,7 @@ import datetime
 
 COMMANDS=["edit","show","queue","list","delete","log","diff","import",
           "export","gliders","xml","ls","help","menu","m","quit","q",
-          "missionlog", "tiddlywiki", "import-from"]
+          "missionlog", "tiddlywiki", "import_from_glider"]
 
 if sys.platform.startswith("linux"):
     from matools import ma_linux as ma_os
@@ -209,10 +209,10 @@ Command tiddlywiki
     tiddlywiki <experiment_name>
         Exports the logs of this repository into a tiddly wiki format.
 
-""",'edit-remote':"""
-Command edit-remote
+""",'import_from_glider':"""
+Command import_from_glider
 
-    edit-remote <filename> <glider>
+    import-from-glider <filename> <glider>
         edits a file, which is read from the from-glider directory on the remote
         server, and puts it under version control.
 """
@@ -1050,7 +1050,7 @@ class MaEditRemote(BaseAction):
         return r&1 # returns 1 if "accept" is part of the error code.
             
     def help(self):
-        print(Help['current'])
+        print(Help['import_from_glider'])
 
 
         
@@ -1088,7 +1088,7 @@ gliders
 xml <scripts|show <glider>|stop <glider>|start <script> <glider>>
 missionlog
 tiddlywiki
-edit-remote <filename> <glider>
+import_from_glider <filename> <glider>
 ls
 help [command]
 
@@ -1187,7 +1187,7 @@ class Command(UI):
                                                         revision)
                 taskDiff=MaDiffLocal(args_to_MaDiff,options,cf)
                 optional_info=taskDiff.diff+"\n\n"
-        if command=='edit-remote':
+        if command=='import_from_glider':
             task=MaEditRemote(remaining_args,options,cf)
             if task.result==1:
                 # change parameters such that log command is run.
