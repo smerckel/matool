@@ -1,7 +1,8 @@
 import glob
 import os
 import re
-from . import timeconversion
+
+import arrow
 
 class Event(object):
     def __init__(self,pattern):
@@ -12,7 +13,7 @@ class Event(object):
 
     def set_timestamp(self,line):
         datestr=" ".join(line.split()[3:7])
-        self.timestamp=timeconversion.strptimeToEpoch(datestr,"%b %d %H:%M:%S %Y")
+        self.timestamp = arrow.get(datestr, "MMM D HH:mm:ss YYYY").timestamp 
 
     def process(self,line):
         if self.timeregex.match(line):
