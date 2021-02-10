@@ -75,10 +75,12 @@ Defaults={'gliderdirectory':'gliders',
 
 
 class Emailer(object):
-    def __init__(self,receivers=[],sender=None,smtpserver=None):
-        self.sender=sender
-        self.smtpserver=smtpserver
-        self.receivers=receivers
+    def __init__(self,receivers=[],sender=None,password=None, smtpserver=None, serverport=465):
+        self.sender = sender
+        self.password = password
+        self.smtpserver = smtpserver
+        self.serverport = serverport
+        self.receivers = receivers
         if not receivers or not sender or not smtpserver:
             self.status=False
         else:
@@ -88,9 +90,11 @@ class Emailer(object):
     def login(self):
         print("Email will be sent as user %s."%(self.sender))
         print("Edit the config file to change the sender.")
-        self.password=getpass.getpass()
+        if self.password is None:
+            self.password = getpass.getpass()
         try:
-            s = smtplib.SMTP(self.smtpserver)
+            s = smtplib.SMTP_SSL(self.smtpserver, self.serverport)
+            s.ehlo()
         except:
             sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
             return 
@@ -106,14 +110,15 @@ class Emailer(object):
         
     def add_receiver(self,receiver):
         self.receivers.append(receiver)
-
+        input(self.receivers)
+        
     def send(self,text,glider):
         msg = MIMEText(text)
         msg['Subject'] = 'Glider log %s'%(glider.capitalize())
         msg['From'] = self.sender
         msg['To'] = ",".join(self.receivers)
         try:
-            s = smtplib.SMTP(self.smtpserver)
+            s = smtplib.SMTP_SSL(self.smtpserver, self.serverport)
         except:
             sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
             return 
@@ -185,9 +190,14 @@ class Ma_Edit(object):
             except configparser.NoSectionError:
                 smtpserver = None
                 sender = None
+                password = None
                 receivers = None
             else:
                 sender=config.get('Email','sender')
+                try:
+                    password = config.get('Email', 'password')
+                except configparser.NoOptionError:
+                    password = None
                 tmp=config.get('Email','receivers')
                 receivers=tmp.replace(',',' ').split()
             try:
@@ -206,6 +216,7 @@ class Ma_Edit(object):
             smtpserver=Defaults['smtpserver']
             smtpserver=None
             sender=Defaults['sender']
+            password=None
             receivers=Defaults['receivers']
             dockserver=Defaults['host']
             port=Defaults['port']
@@ -222,6 +233,7 @@ class Ma_Edit(object):
             newconfig.set('Paths','logfile',logfile)
             newconfig.set('Email','smtpserver',smtpserver)
             newconfig.set('Email','sender',sender)
+            newconfig.set('Email','password',password)
             newconfig.set('Email','receivers',receivers.__str__())
             newconfig.set('Dockserver','host',dockserver)
             newconfig.set('Dockserver','port',"%d"%(port))
@@ -241,6 +253,7 @@ class Ma_Edit(object):
         if smtpserver:
             self.emailer=Emailer(receivers=receivers,
                                  sender=sender,
+                                 password=password,
                                  smtpserver=smtpserver)
         else:
             self.emailer = Emailer()
