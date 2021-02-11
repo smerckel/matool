@@ -806,7 +806,7 @@ class MaList(BaseAction):
             originals=[f for f in lof if not f.endswith("current")]
             for i,f in enumerate(originals):
                 previous_revision = max(-1, int(revisions[f])) # makes -2 -> -1
-                print("%2d %12s at rev. %03d"%(i,f,1+previous_revision), end=' ')
+                print("%2d %12s at rev. %03d"%(i,f,previous_revision), end=' ')
                 if f+".current" in lof:
                     print()
                 else:
