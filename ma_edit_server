@@ -124,11 +124,15 @@ class Emailer(object):
             s = smtplib.SMTP_SSL(self.smtpserver, self.serverport)
         except:
             sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
+            s.quit()
             return 
-
-        returnCode=s.login(self.sender,self.password)
-        if returnCode[0]!=235: # successful login
-            sys.stderr.write('Could not log into mail server.\n')
+        try:
+            s.login(self.sender,self.password)
+        except smtplib.SMTPAuthenticationError as e:
+            code, resp = e.args
+            sys.stderr.write(f"Authentication Error: {resp} ({code})")
+            s.quit()
+            return
         try:
             s.sendmail(self.sender, self.receivers, msg.as_string())
         except smtplib.SMTPRecipientsRefused as err:
@@ -1118,8 +1122,7 @@ class Server(Ma_Edit):
             try:
                 mesgb = client.recv(self.bufferLength)
             except error as e:
-                if e[0]!=104:
-                    raise error(e)
+                self.logger(f"Connection error occured {e.args}")
                 client.close()
                 self.logger("Connection from {} closed.".format(addr[0]))
                 continue # wait for new connection
