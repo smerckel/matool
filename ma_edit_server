@@ -54,6 +54,8 @@ import getpass
 
 import dockserverTalk.dockserverTalk as DT
 
+
+    
 # Modify these three variables to suit your situation:
 
 
@@ -72,6 +74,7 @@ Defaults={'gliderdirectory':'gliders',
           'port':6564,
           'senderID':"ma_edit_server;0xb1gb1g" }
 
+DEFAULT_PORT = 9000                
 
 
 class Emailer(object):
@@ -159,9 +162,7 @@ class Ma_Edit(object):
         config = configparser.ConfigParser(Defaults)
         cnfs=config.read(ConfigFiles)
         sys.stderr.write("Reading configuration file(s):\n")
-        for s in cnfs:
-            sys.stderr.write("\t{}".format(s))
-
+        sys.stderr.write(f"\t{' : '.join(cnfs)}\n")
         HD = config.get('Paths','directory')
         try:
             self.checkPath(HD)
@@ -170,6 +171,10 @@ class Ma_Edit(object):
             sys.exit(1)
 
         if cnfs:
+            try:
+                networkport=config.getint('Network','port')
+            except (configparser.NoSectionError, configparser.NoOptionError):
+                networkport=DEFAULT_PORT
             p = config.get('Paths','gliderdirectory')
             if p.startswith(os.path.sep):
                 self.gliderdirectory = p
@@ -210,6 +215,7 @@ class Ma_Edit(object):
                 port=int(config.get('Dockserver','port'))
                 senderID=config.get('Dockserver','senderID')
         else:
+            networkport=DEFAULT_PORT
             self.gliderdirectory=os.path.join(HD,Defaults['gliderdirectory'])
             self.repository=os.path.join(HD,Defaults['repository'])
             logfile=os.path.join(HD,Defaults['logfile'])
@@ -258,6 +264,7 @@ class Ma_Edit(object):
         else:
             self.emailer = Emailer()
         config_summary=dict(cf = cnfs,
+                            networkport=networkport,
                             gdir = self.gliderdirectory,
                             rdir = self.repository,
                             log = logfile,
@@ -269,14 +276,14 @@ class Ma_Edit(object):
                             
         self.print_config(config_summary)
         self.print_config(config_summary, fd=self.fd)
-
+        
     def print_config(self, config_summary, fd=sys.stderr):
         fd.write("Configuration summary:\n")
         fd.write("----------------------\n")
         fd.write("\n")
         fd.write(f"Config file     : {config_summary['cf']}\n")
         fd.write("\n")
-              
+        fd.write(f"Network port    : {config_summary['networkport']}\n")
         fd.write(f"Glider directory:{config_summary['gdir']}\n")
         fd.write(f"Repository      :{config_summary['rdir']}\n")
         fd.write(f"Log file        :{config_summary['log']}\n")
@@ -293,7 +300,7 @@ class Ma_Edit(object):
         fn=os.path.join(self.repository,glider,filename)
         i=self.__currentSequentialNumber(glider,filename)
         if i==-2: # no files with this basename present yet.
-            return None 
+            return None
         i+=1
         return fn+".%03d"%(i)
 
@@ -492,10 +499,6 @@ class Ma_Edit(object):
 
     def getRevision(self,filename,glider):
         r=self.__currentSequentialNumber(glider,filename)
-        # the current revision is in fact 1 higher than the highest
-        # number found for the extension
-        r+=1
-        #return as a string
         return "%d"%(r)
 
     def getGliderList(self):
@@ -560,11 +563,12 @@ class Ma_Edit(object):
             fn = os.path.join(self.repository,glider,basefilename)+".current"
         else:
             raise ValueError('Mode not supported')
-        if not fn is None: # fn is None if trying to write a sequential file, if there are no files yet.
-            self.__create_directory_if_needed(fn)
-            self.__writeContent(fn,content)
-            self.__writeHistory(glider,basefilename,mode)
-
+        if fn is None: # fn is None if trying to write a sequential file, if there are no files yet
+            fn = os.path.join(self.repository,glider,basefilename)+".000"
+        self.__create_directory_if_needed(fn)
+        self.__writeContent(fn,content)
+        self.__writeHistory(glider,basefilename,mode)
+        
             
     def processReturnedMafile(self,ticket,content):
         if ticket in self.cache:
@@ -578,8 +582,8 @@ class Ma_Edit(object):
                 if (glider,filename) in self.queue:
                     r|=xmlprotocol.OVERWRITE
                 self.queue[(glider,filename)]=(content,user)
-                #write the origal file content next sequential file
-                self.writeToRepository(glider,filename,origContent,
+                #write the original file content next sequential file. If empty write the current content (first file)
+                self.writeToRepository(glider,filename,content,
                                        mode='sequential')
                 # and then write the new stuff as the real name.
                 self.writeToRepository(glider,filename,content,
@@ -946,7 +950,7 @@ class Ma_Edit(object):
             return "Starting %s Failed"%(script)
 
 class Server(Ma_Edit):
-    def __init__(self,port=9000):
+    def __init__(self,port=DEFAULT_PORT):
         Ma_Edit.__init__(self)
         try:
             port=self.configuration.getint('Network','port')
