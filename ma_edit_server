@@ -68,7 +68,7 @@ Defaults={'gliderdirectory':'gliders',
           'repository':'repository',
           'logfile':"ma_edit_server.log",
           'smtpserver':'localhost',
-          'receivers':[],
+          'receivers':'localuser@dockserver',
           'sender':'localuser@dockserver',
           'dockserver':"141.4.0.159",
           'port':6564,
@@ -78,8 +78,10 @@ DEFAULT_PORT = 9000
 
 
 class Emailer(object):
-    def __init__(self,receivers=[],sender=None,password=None, smtpserver=None, serverport=465):
+    def __init__(self,receivers=[],sender=None,username=None,
+                 password=None, smtpserver=None, serverport=587):
         self.sender = sender
+        self.username = username
         self.password = password
         self.smtpserver = smtpserver
         self.serverport = serverport
@@ -89,27 +91,28 @@ class Emailer(object):
         else:
             self.status=True
             self.login()
-
+        
     def login(self):
         print("Email will be sent as user %s."%(self.sender))
         print("Edit the config file to change the sender.")
         if self.password is None:
             self.password = getpass.getpass()
         try:
-            s = smtplib.SMTP_SSL(self.smtpserver, self.serverport)
+            s = smtplib.SMTP(self.smtpserver, self.serverport)
+            s.ehlo()
+            s.starttls()
             s.ehlo()
         except:
             sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
             return 
         try:
-            s.login(self.sender,self.password)
+            s.login(self.username,self.password)
         except smtplib.SMTPAuthenticationError as err:
             sys.stderr.write("Failed to login.\nError was:\n%s\n"%(err))
             sys.stderr.write("Email facility dysfunctional.\n")
             self.status=False
         else:
             s.quit()
-        
         
     def add_receiver(self,receiver):
         self.receivers.append(receiver)
@@ -121,13 +124,16 @@ class Emailer(object):
         msg['From'] = self.sender
         msg['To'] = ",".join(self.receivers)
         try:
-            s = smtplib.SMTP_SSL(self.smtpserver, self.serverport)
+            s = smtplib.SMTP(self.smtpserver, self.serverport)
         except:
             sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
             s.quit()
-            return 
+            return
+        s.ehlo()
+        s.starttls()
+        s.ehlo()
         try:
-            s.login(self.sender,self.password)
+            s.login(self.username,self.password)
         except smtplib.SMTPAuthenticationError as e:
             code, resp = e.args
             sys.stderr.write(f"Authentication Error: {resp} ({code})")
@@ -138,7 +144,6 @@ class Emailer(object):
         except smtplib.SMTPRecipientsRefused as err:
             sys.stderr.write("Failed to send email(s).\nError was:\n%s\n"%(err))
         s.quit()
-
 
 class DockserverWatchDog(Thread):
     ''' Watchdog class that executes a function at regulare
@@ -167,14 +172,15 @@ class Ma_Edit(object):
         cnfs=config.read(ConfigFiles)
         sys.stderr.write("Reading configuration file(s):\n")
         sys.stderr.write(f"\t{' : '.join(cnfs)}\n")
-        HD = config.get('Paths','directory')
-        try:
-            self.checkPath(HD)
-        except PermissionError:
-            sys.stderr.write("Fatal: Insufficient permissions to modify directory %s.\n"%(HD))
-            sys.exit(1)
 
         if cnfs:
+            HD = config.get('Paths','directory')
+            try:
+                self.checkPath(HD)
+            except PermissionError:
+                sys.stderr.write("Fatal: Insufficient permissions to modify directory %s.\n"%(HD))
+                sys.exit(1)
+            
             try:
                 networkport=config.getint('Network','port')
             except (configparser.NoSectionError, configparser.NoOptionError):
@@ -199,14 +205,17 @@ class Ma_Edit(object):
             except configparser.NoSectionError:
                 smtpserver = None
                 sender = None
+                username = None
                 password = None
                 receivers = None
             else:
                 sender=config.get('Email','sender')
                 try:
+                    username = config.get('Email', 'username')
                     password = config.get('Email', 'password')
                 except configparser.NoOptionError:
                     password = None
+                    username = None
                 tmp=config.get('Email','receivers')
                 receivers=tmp.replace(',',' ').split()
             try:
@@ -220,29 +229,34 @@ class Ma_Edit(object):
                 senderID=config.get('Dockserver','senderID')
         else:
             networkport=DEFAULT_PORT
+            HD = '.'
+            ConfigFile = 'ma_edit_serverrc.example'
             self.gliderdirectory=os.path.join(HD,Defaults['gliderdirectory'])
             self.repository=os.path.join(HD,Defaults['repository'])
             logfile=os.path.join(HD,Defaults['logfile'])
             smtpserver=Defaults['smtpserver']
-            smtpserver=None
+            smtpserver="smtp.server.com"
             sender=Defaults['sender']
-            password=None
+            username = "joe"
+            password="secret"
             receivers=Defaults['receivers']
-            dockserver=Defaults['host']
+            dockserver=Defaults['dockserver']
             port=Defaults['port']
             senderID=Defaults['senderID']
             sys.stderr.write("Found no configuration file.\n")
-            sys.stderr.write("I am going to write one with default settings to %s.\n"%(ConfigFiles[0]))
+            sys.stderr.write("I am going to write one with default settings to %s.\n"%(ConfigFile))
             sys.stderr.write("You may want to edit this file, though.\n")
             newconfig = configparser.ConfigParser()
             newconfig.add_section('Paths')
             newconfig.add_section('Email')
             newconfig.add_section('Dockserver')
-            newconfig.set('Paths','gliderdirectory',self.gliderdirectory)
-            newconfig.set('Paths','repository',self.repository)
+            newconfig.set('Paths','directory',HD)
+            newconfig.set('Paths','gliderdirectory',Defaults['gliderdirectory'])
+            newconfig.set('Paths','repository',Defaults['repository'])
             newconfig.set('Paths','logfile',logfile)
             newconfig.set('Email','smtpserver',smtpserver)
             newconfig.set('Email','sender',sender)
+            newconfig.set('Email','username',username)
             newconfig.set('Email','password',password)
             newconfig.set('Email','receivers',receivers.__str__())
             newconfig.set('Dockserver','host',dockserver)
@@ -251,7 +265,12 @@ class Ma_Edit(object):
             fp=open(ConfigFile,'w')
             newconfig.write(fp)
             fp.close()
-
+            sys.stderr.write("Wrote configuration file. Copy, edit and restart.\n")
+            sys.stderr.write("I will look in for these files:\n")
+            for s in ConfigFiles:
+                sys.stderr.write(f"\t{s}\n")
+            sys.exit(0)
+            
         sys.stderr.write(f"Opening logfile: {logfile}\n")
         self.fd = open(logfile,'a')
         self.dialogs={}
@@ -263,6 +282,7 @@ class Ma_Edit(object):
         if smtpserver:
             self.emailer=Emailer(receivers=receivers,
                                  sender=sender,
+                                 username=username,
                                  password=password,
                                  smtpserver=smtpserver)
         else:
@@ -277,7 +297,6 @@ class Ma_Edit(object):
                             recv = receivers,
                             dockserver = dockserver,
                             port = port)
-                            
         self.print_config(config_summary)
         self.print_config(config_summary, fd=self.fd)
         
