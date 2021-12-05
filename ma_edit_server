@@ -37,11 +37,11 @@ from matools import dialog
 from matools import __version__
 import dbdreader
 
+import arrow
 from socket import *
 import os
 import sys
 import time
-import timeconversion
 import glob
 from threading import Thread
 import re
@@ -334,7 +334,7 @@ class Ma_Edit(object):
         revision_str=None
         for line in lines:
             datestr,rest=line.replace(": Uploaded","|").split("|")
-            tm=timeconversion.strptimeToEpoch(datestr,"%a %b %d %H:%M:%S %Y")
+            tm = arrow.Arrow.strptime(datestr, "%a %b %d %H:%M:%S %Y").timestamp()
             if tm<=timestamp:
                 revision_str=rest
             else:
@@ -354,7 +354,7 @@ class Ma_Edit(object):
         for i,v in enumerate(txt):
             if "MAFILES reread." in v:
                 datestr,rest=v.replace(": ","| ").split("|")
-                tm=timeconversion.strptimeToEpoch(datestr,"%a %b %d %H:%M:%S %Y")
+                tm = arrow.Arrow.strptime(datestr, "%a %b %d %H:%M:%S %Y").timestamp()
                 if tm<timestamp+5*60 or tm<timestamp-5*60: # allow 5 minute clock skewness.
                     k=i
                 else:
@@ -399,9 +399,9 @@ class Ma_Edit(object):
 
     def __writeHistory(self,glider,basefn,mode):
         p = os.path.join(self.repository,glider,'history.txt')
-        timestamp=timeconversion.epochToDateTimeStr(time.time(),
-                                                    "%a %b %d %H:%M:%S %Y",
-                                                    "")[0]
+        
+
+        timestamp = arrow.get().strftime("%a %b %d %H:%M:%S %Y")
         if mode=='fail':
             s="%s: Failed to write %s to repository\n"%(timestamp,basefn)
         elif mode=="canonical":
@@ -716,7 +716,7 @@ class Ma_Edit(object):
         n_underscores=basename.count('_')
         # get the string from the last _:
         timestr=(basename.split('_')[n_underscores]).replace(".log","")
-        t=timeconversion.strptimeToEpoch(timestr,"%Y%m%dT%H%M%S")
+        t = arrow.Arrow.strptime(timestr, "%Y%m%dT%H%M%S").timestamp()
         return t
 
     def isPickup(self,glider,timestamp):
@@ -883,7 +883,7 @@ class Ma_Edit(object):
                 if line.startswith("Curr Time:") and "MT:" in line:
                     fields=line.split()
                     timestr=" ".join(fields[3:7])
-                    tm=timeconversion.strptimeToEpoch(timestr,"%b %d %H:%M:%S %Y")
+                    tm = arrow.Arrow.strptime(timestr, "%b %d %H:%M:%S %Y").timestamp()
         except:
             sys.stderr.write("Failed to read log file for getting time info.\n")
         finally:
