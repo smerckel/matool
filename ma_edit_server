@@ -32,6 +32,8 @@ Licensed under GPL, see the file COPYRIGHT
 lucas.merckelbach@hzg.de, 1 June 2011
 
 '''
+import argparse
+
 from matools import xmlprotocol
 from matools import dialog
 from matools import __version__
@@ -59,7 +61,8 @@ import dockserverTalk.dockserverTalk as DT
 # Modify these three variables to suit your situation:
 
 
-ConfigFiles=[os.path.join('/usr/local/etc/','ma_edit_serverrc'),
+ConfigFiles=['ma_edit_serverrc',
+             os.path.join('/usr/local/etc/','ma_edit_serverrc'),
              os.path.join(os.environ['HOME'],'.ma_edit_serverrc')
              ]
 
