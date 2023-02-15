@@ -61,8 +61,7 @@ import dockserverTalk.dockserverTalk as DT
 # Modify these three variables to suit your situation:
 
 
-ConfigFiles=['ma_edit_serverrc',
-             os.path.join('/usr/local/etc/','ma_edit_serverrc'),
+ConfigFiles=[os.path.join('/usr/local/etc/','ma_edit_serverrc'),
              os.path.join(os.environ['HOME'],'.ma_edit_serverrc')
              ]
 
@@ -1171,6 +1170,14 @@ class Server(Ma_Edit):
             self.logger("Connection from {} closed.".format(addr[0]))
 
 # main program #
+parser = argparse.ArgumentParser()
+parser.add_argument('-f', metavar='FILENAME', help="Specifies which config script to use.")
+args = parser.parse_args()
+
+
+if args.f:
+    ConfigFiles.clear()
+    ConfigFiles.append(args.f)
 
 s = Server()
 s.syncDirAndQue(interactive = False)
