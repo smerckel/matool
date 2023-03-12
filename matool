@@ -48,7 +48,7 @@ class MatoolError(Exception):
 def ls():
     ''' returns all ma and mi files '''
     fns=os.listdir('.')
-    r=[f for f in fns if f.lower().endswith('ma') or f.lower().endswith('mi')]
+    r=[f for f in fns if f.lower().endswith('.ma') or f.lower().endswith('.mi') or f.lower().endswith('.dat')]
     return r
 
 # setting default host and port number where ma_edit_server lives
@@ -311,8 +311,11 @@ class BaseAction(object):
             self.result=self.run()
 
     def print_error_message(self, err_code):
-        mesg = xmlprotocol.ERRORMESG[err_code]
-        print(mesg)
+        mesg = []
+        for i in range(10):
+            if err_code >> i & 1:
+                mesg.append(xmlprotocol.ERRORMESG[1<<i])
+        print("; ".join(mesg))
         
         
     def check_glider_presence(self,glider):
@@ -742,6 +745,7 @@ class MaStatus(BaseAction):
         self.client = ma_edit.Ma_Status_Client(self.host,self.port)
         self.check_connection()
         r=self.client.status()
+        self.print_error_message(r)
         self.show_result(self.client.queue)
 
     def show_result(self,r):
@@ -1266,7 +1270,8 @@ class Command(UI):
 if __name__=='__main__':
     try:
         cmd = Command()
-    except Exception as e:
+    except MatoolError as e:
         print(f"Exception caught:  {e.args[0]}")
-
+    except Exception as e:
+        raise e
         
