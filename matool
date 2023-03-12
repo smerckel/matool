@@ -310,6 +310,11 @@ class BaseAction(object):
             self.parse_remaining_args(args)
             self.result=self.run()
 
+    def print_error_message(self, err_code):
+        mesg = xmlprotocol.ERRORMESG[err_code]
+        print(mesg)
+        
+        
     def check_glider_presence(self,glider):
         n=len(glider)
         lg=None
@@ -536,11 +541,9 @@ class MaImport(BaseAction):
         for f in self.filenames:
             print("Importing %s... "%(f), end="")
             r=self.client.upload(f)
-            if r!=1:
-                print("Failed. File not found.")
-            else:
-                print("OK")
+            if r==1 or r==2:
                 success.append(f)
+            self.print_error_message(r)
         #todo write in the logs that something was uploaded
 
     def help(self):
@@ -1261,5 +1264,9 @@ class Command(UI):
 
 
 if __name__=='__main__':
-    cmd = Command()
+    try:
+        cmd = Command()
+    except Exception as e:
+        print(f"Exception caught:  {e.args[0]}")
+
         
