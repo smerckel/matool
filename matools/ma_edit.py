@@ -511,6 +511,14 @@ class Ma_XML_Client(Client):
         Client.__init__(self,host,port)
 
     def show(self,glider):
+        sn, st = self.get_active_script(glider)
+        if sn=="":
+            s="No script is running."
+        else:
+            s="Current active script for %s is %s/%s."%(glider,st,sn)
+        return s
+
+    def get_active_script(self, glider):
         self.connect()
         request=xmlprotocol.XMLScript('show',glider)
         msg = request()
@@ -521,12 +529,8 @@ class Ma_XML_Client(Client):
         r.digest(answer)
         sn=r.packetAttributes['script_name']
         st=r.packetAttributes['script_type']
-        if sn=="":
-            s="No script is running."
-        else:
-            s="Current active script for %s is %s/%s."%(glider,st,sn)
-        return s
-
+        return sn, st
+    
     def stop(self,glider):
         self.connect()
         request=xmlprotocol.XMLScript('stop',glider)
