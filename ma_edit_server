@@ -1138,7 +1138,13 @@ class Server(Ma_Edit):
             self.logger("Connection received from {}.".format(addr[0]))
             hello="%sV%-8s"%(xmlprotocol.ID,__version__)
             hellob=bytes(hello,encoding='utf-8')
-            client.send(hellob)
+            try:
+                client.send(hellob)
+            except error as e:
+                self.logger(f"Connection error occured {e.args}")
+                client.close()
+                self.logger("Connection from {} closed.".format(addr[0]))
+                continue # wait for new connection
             self.checkFilesRemovedByDockserver()
             try:
                 mesgb = client.recv(self.bufferLength)
@@ -1160,12 +1166,30 @@ class Server(Ma_Edit):
                 while True:
                     if mesg.endswith('</packet>'):
                         break
-                    mesgb=client.recv(self.bufferLength)
-                    mesg+=mesgb.decode('utf-8')
+                    try:
+                        mesgb=client.recv(self.bufferLength)
+                    except error as e:
+                        self.logger(f"Connection error occured {e.args} while receiving from client.")
+                        client.close()
+                        self.logger("Connection from {} closed.".format(addr[0]))
+                        continue # wait for new connection
+                    try:
+                        mesg+=mesgb.decode('utf-8')
+                    except UnicodeDecodeError:
+                        self.logger("Invalid request from {}. Ignoring.".format(addr[0]))
+                        client.close()
+                        self.logger("Connection from {} closed.".format(addr[0]))
+                        continue
                 answer, rtype, raction = self.digest(mesg)
                 self.logger("Received {} for {} from {}.".format(rtype, raction, addr[0]))
                 answerb=bytes(answer,encoding='utf-8')
-                client.send(answerb)
+                try:
+                    client.send(answerb)
+                except error as e:
+                    self.logger(f"Connection error occured {e.args}")
+                    client.close()
+                    self.logger("Connection from {} closed.".format(addr[0]))
+                    continue # wait for new connection
             client.close()
             self.logger("Connection from {} closed.".format(addr[0]))
 
