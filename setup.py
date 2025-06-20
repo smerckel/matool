@@ -17,7 +17,7 @@ from distutils.core import setup
 if sys.platform.startswith("linux"):
     setup(name="matools",
           version=version,
-          requires=['arrow'],
+          install_requires=['arrow'],
           packages = ["matools"],
           scripts = ["matool","ma_edit_server","ma_server.py"],
           author = "Lucas Merckelbach",
