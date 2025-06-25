@@ -33,6 +33,7 @@ lucas.merckelbach@hzg.de, 1 June 2011
 
 '''
 import argparse
+import abc
 
 from matools import xmlprotocol
 from matools import dialog
@@ -69,9 +70,9 @@ Defaults={'gliderdirectory':'gliders',
           'directory':'/var/local/ma_edit_server',
           'repository':'repository',
           'logfile':"ma_edit_server.log",
-          'smtpserver':'localhost',
-          'receivers':'localuser@dockserver',
-          'sender':'localuser@dockserver',
+          'smtpserver':'',
+          'receivers':'',
+          'sender':'',
           'dockserver':"141.4.0.159",
           'port':6564,
           'senderID':"ma_edit_server;0xb1gb1g" }
@@ -79,7 +80,7 @@ Defaults={'gliderdirectory':'gliders',
 DEFAULT_PORT = 9000                
 
 
-class Emailer(object):
+class EmailerBase(abc.ABC):
     def __init__(self,receivers=[],sender=None,username=None,
                  password=None, smtpserver=None, serverport=587):
         self.sender = sender
@@ -88,6 +89,23 @@ class Emailer(object):
         self.smtpserver = smtpserver
         self.serverport = serverport
         self.receivers = receivers
+        self.status = True
+        
+    @abc.abstractmethod
+    def login(self):
+        pass
+    
+    @abc.abstractmethod
+    def send(self, text, glider):
+        pass
+    
+    def add_receiver(self,receiver):
+        self.receivers.append(receiver)
+    
+class Emailer(EmailerBase):
+    def __init__(self,receivers=[],sender=None,username=None,
+                 password=None, smtpserver=None, serverport=587):
+        super().__init__(receivers, sender, username, password, smtpserver, serverport)
         if not receivers or not sender or not smtpserver:
             self.status=False
         else:
@@ -115,11 +133,7 @@ class Emailer(object):
             self.status=False
         else:
             s.quit()
-        
-    def add_receiver(self,receiver):
-        self.receivers.append(receiver)
-        input(self.receivers)
-        
+                
     def send(self,text,glider):
         msg = MIMEText(text)
         msg['Subject'] = 'Glider log %s'%(glider.capitalize())
@@ -146,6 +160,19 @@ class Emailer(object):
         except smtplib.SMTPRecipientsRefused as err:
             sys.stderr.write("Failed to send email(s).\nError was:\n%s\n"%(err))
         s.quit()
+
+
+class EmailerFake(EmailerBase):
+    def __init__(self,receivers=[],sender=None,username=None,
+                 password=None, smtpserver=None, serverport=587):
+        super().__init__(receivers, sender, username, password, smtpserver, serverport)
+        print("Setting up fake emailer.")
+        
+    def login(self):
+        print("Fake Email service: pretending to log in.")
+                
+    def send(self,text,glider):
+        print("Fake Email service: pretending to send.")
 
 class DockserverWatchDog(Thread):
     ''' Watchdog class that executes a function at regulare
@@ -281,6 +308,7 @@ class Ma_Edit(object):
         self.cache = {}
         self.queue = {}
         self.configuration=config
+        print("smtpserver:", smtpserver)
         if smtpserver:
             self.emailer=Emailer(receivers=receivers,
                                  sender=sender,
@@ -288,7 +316,7 @@ class Ma_Edit(object):
                                  password=password,
                                  smtpserver=smtpserver)
         else:
-            self.emailer = Emailer()
+            self.emailer = EmailerFake()
         config_summary=dict(cf = cnfs,
                             networkport=networkport,
                             gdir = self.gliderdirectory,
@@ -378,7 +406,7 @@ class Ma_Edit(object):
         pattern="%s*"%(fn)
         matches=glob.glob(pattern)
         # remove all custom-made and other alternations:
-        matches = [i for i in matches if re.search("\.[a-z]*\.[0-9]*$",i)]
+        matches = [i for i in matches if re.search(r"\.[a-z]*\.[0-9]*$",i)]
         if matches:
             matches.sort()
             lastfn=matches[-1]
