@@ -27,9 +27,9 @@ class Editor(object):
         self.editor=editor
     
     def open(self,fn):
-        #R = subprocess.check_call([self.editor,fn])
-        #return R
-        p = subprocess.Popen([self.editor,fn],shell=False,stderr=subprocess.PIPE)
+        args = self.editor.split() # also processes options to the editor
+        args.append(fn)
+        p = subprocess.Popen(args ,shell=False,stderr=subprocess.PIPE)
         p.wait()
         return p.returncode
 

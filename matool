@@ -71,7 +71,7 @@ edit-remote tiddlywiki
 Options:
   -h, --help            show help message and exit
   -v, --version         Show version number and quit
-  -f FILE               Use specified configuration file instead of default .matoolrc
+  -f FILE               Use specified configuration file instead of default .config/matools/matoolrc
 
 For more detailed help use:
 
