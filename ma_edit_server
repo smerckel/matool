@@ -63,7 +63,7 @@ import dockserverTalk.dockserverTalk as DT
 
 
 ConfigFiles=[os.path.join('/usr/local/etc/','ma_edit_serverrc'),
-             os.path.join(os.environ['HOME'],'.ma_edit_serverrc')
+             os.path.join(os.environ['HOME'],'.config/matools/ma_edit_serverrc')
              ]
 
 Defaults={'gliderdirectory':'gliders',
