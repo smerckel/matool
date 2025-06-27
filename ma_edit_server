@@ -53,7 +53,6 @@ import configparser
 import smtplib
 from email.mime.text import MIMEText
 from functools import reduce
-import getpass
 
 import dockserverTalk.dockserverTalk as DT
 
@@ -81,18 +80,15 @@ DEFAULT_PORT = 9000
 
 
 class EmailerBase(abc.ABC):
-    def __init__(self,receivers=[],sender=None,username=None,
-                 password=None, smtpserver=None, serverport=587):
+    def __init__(self,receivers=[],sender=None, smtpserver=None, serverport=587):
         self.sender = sender
-        self.username = username
-        self.password = password
         self.smtpserver = smtpserver
         self.serverport = serverport
         self.receivers = receivers
         self.status = True
-        
+
     @abc.abstractmethod
-    def login(self):
+    def check_server(self):
         pass
     
     @abc.abstractmethod
@@ -103,73 +99,57 @@ class EmailerBase(abc.ABC):
         self.receivers.append(receiver)
     
 class Emailer(EmailerBase):
-    def __init__(self,receivers=[],sender=None,username=None,
-                 password=None, smtpserver=None, serverport=587):
-        super().__init__(receivers, sender, username, password, smtpserver, serverport)
+    def __init__(self,receivers=[],sender=None,
+                 smtpserver=None, serverport=587):
+        super().__init__(receivers, sender, smtpserver, serverport)
         if not receivers or not sender or not smtpserver:
             self.status=False
         else:
             self.status=True
-            self.login()
-        
-    def login(self):
-        print("Email will be sent as user %s."%(self.sender))
-        print("Edit the config file to change the sender.")
-        if self.password is None:
-            self.password = getpass.getpass()
+
+    def get_smtp(self):
         try:
-            s = smtplib.SMTP(self.smtpserver, self.serverport)
-            s.ehlo()
-            s.starttls()
-            s.ehlo()
+            s = smtplib.SMTP(self.smtpserver, self.serverport, timeout=10)
         except:
             sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
-            return 
-        try:
-            s.login(self.username,self.password)
-        except smtplib.SMTPAuthenticationError as err:
-            sys.stderr.write("Failed to login.\nError was:\n%s\n"%(err))
-            sys.stderr.write("Email facility dysfunctional.\n")
-            self.status=False
+            return None
         else:
-            s.quit()
-                
+            return s
+        
+    def check_server(self):
+        # to be called on startup. 
+        s = self.get_smtp()
+        if s is None:
+            sys.stderr.write("Failed to send email(s).\nCould not connect to server.")
+            sys.exit(1)
+        
     def send(self,text,glider):
+        s = self.get_smtp()
+        if s is None:
+            sys.stderr.write("Failed to send email(s).\nCould not connect to server.")
+            return
         msg = MIMEText(text)
         msg['Subject'] = 'Glider log %s'%(glider.capitalize())
         msg['From'] = self.sender
         msg['To'] = ",".join(self.receivers)
         try:
-            s = smtplib.SMTP(self.smtpserver, self.serverport)
-        except:
-            sys.stderr.write("Failed to connect to smtpserver. No emails will be sent.")
-            s.quit()
-            return
-        s.ehlo()
-        s.starttls()
-        s.ehlo()
-        try:
-            s.login(self.username,self.password)
-        except smtplib.SMTPAuthenticationError as e:
-            code, resp = e.args
-            sys.stderr.write(f"Authentication Error: {resp} ({code})")
-            s.quit()
-            return
-        try:
+            s.ehlo()
+            s.starttls()
+            s.ehlo()
             s.sendmail(self.sender, self.receivers, msg.as_string())
-        except smtplib.SMTPRecipientsRefused as err:
+        except Exception as err:
             sys.stderr.write("Failed to send email(s).\nError was:\n%s\n"%(err))
-        s.quit()
+        else:
+            s.quit()
 
 
 class EmailerFake(EmailerBase):
-    def __init__(self,receivers=[],sender=None,username=None,
-                 password=None, smtpserver=None, serverport=587):
-        super().__init__(receivers, sender, username, password, smtpserver, serverport)
-        print("Setting up fake emailer.")
-        
-    def login(self):
-        print("Fake Email service: pretending to log in.")
+    def __init__(self,receivers=[],sender=None,
+                 smtpserver=None, serverport=587):
+        super().__init__(receivers, sender, smtpserver, serverport)
+
+    def check_server(self):
+        return True
                 
     def send(self,text,glider):
         print("Fake Email service: pretending to send.")
@@ -234,17 +214,9 @@ class Ma_Edit(object):
             except configparser.NoSectionError:
                 smtpserver = None
                 sender = None
-                username = None
-                password = None
                 receivers = None
             else:
                 sender=config.get('Email','sender')
-                try:
-                    username = config.get('Email', 'username')
-                    password = config.get('Email', 'password')
-                except configparser.NoOptionError:
-                    password = None
-                    username = None
                 tmp=config.get('Email','receivers')
                 receivers=tmp.replace(',',' ').split()
             try:
@@ -266,8 +238,6 @@ class Ma_Edit(object):
             smtpserver=Defaults['smtpserver']
             smtpserver="smtp.server.com"
             sender=Defaults['sender']
-            username = "joe"
-            password="secret"
             receivers=Defaults['receivers']
             dockserver=Defaults['dockserver']
             port=Defaults['port']
@@ -285,8 +255,6 @@ class Ma_Edit(object):
             newconfig.set('Paths','logfile',logfile)
             newconfig.set('Email','smtpserver',smtpserver)
             newconfig.set('Email','sender',sender)
-            newconfig.set('Email','username',username)
-            newconfig.set('Email','password',password)
             newconfig.set('Email','receivers',receivers.__str__())
             newconfig.set('Dockserver','host',dockserver)
             newconfig.set('Dockserver','port',"%d"%(port))
@@ -308,13 +276,11 @@ class Ma_Edit(object):
         self.cache = {}
         self.queue = {}
         self.configuration=config
-        print("smtpserver:", smtpserver)
         if smtpserver:
             self.emailer=Emailer(receivers=receivers,
                                  sender=sender,
-                                 username=username,
-                                 password=password,
                                  smtpserver=smtpserver)
+            self.emailer.check_server()
         else:
             self.emailer = EmailerFake()
         config_summary=dict(cf = cnfs,
