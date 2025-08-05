@@ -35,7 +35,7 @@ import datetime
 
 COMMANDS=["edit","show","queue","list","delete","log","diff","import",
           "export","gliders","xml","ls","help","menu","m","quit","q",
-          "missionlog", "tiddlywiki", "import_from_glider"]
+          "missionlog", "tiddlywiki", "edit-remote"]
 
 if sys.platform.startswith("linux"):
     from matools import ma_linux as ma_os
@@ -209,10 +209,10 @@ Command tiddlywiki
     tiddlywiki <experiment_name>
         Exports the logs of this repository into a tiddly wiki format.
 
-""",'import_from_glider':"""
-Command import_from_glider
+""",'edit-remote':"""
+Command edit-remote
 
-    import-from-glider <filename> <glider>
+    edit-remote <filename> <glider>
         edits a file, which is read from the from-glider directory on the remote
         server, and puts it under version control.
 """
@@ -239,6 +239,8 @@ class Configurator(object):
         config.add_section('Ssh')
         config.add_section(self.user)
         config.set(self.user,'editor',ma_os.DefaultEditor)
+        config_directory, _ = os.path.split(ma_os.ConfigPath)
+        os.makedirs(config_directory, exist_ok=True)
         fd=open(ma_os.ConfigPath,'w')
         config.write(fd)
         fd.close()
@@ -1057,7 +1059,7 @@ class MaEditRemote(BaseAction):
         return r&1 # returns 1 if "accept" is part of the error code.
             
     def help(self):
-        print(Help['import_from_glider'])
+        print(Help['edit-remote'])
 
 
         
