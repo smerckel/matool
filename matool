@@ -1097,7 +1097,7 @@ gliders
 xml <scripts|show <glider>|stop <glider>|start <script> <glider>>
 missionlog
 tiddlywiki
-import_from_glider <filename> <glider>
+edit-remote <filename> <glider>
 ls
 help [command]
 
@@ -1196,7 +1196,7 @@ class Command(UI):
                                                         revision)
                 taskDiff=MaDiffLocal(args_to_MaDiff,options,cf)
                 optional_info=taskDiff.diff+"\n\n"
-        if command=='import_from_glider':
+        if command=='edit-remote':
             task=MaEditRemote(remaining_args,options,cf)
             if task.result==1:
                 # change parameters such that log command is run.
