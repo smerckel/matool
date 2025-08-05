@@ -13,15 +13,17 @@ version=matools.__version__
 
 from distutils.core import setup
 
+with open('requirements.txt') as fh:
+    install_requires = [line.strip() for line in fh]
 
 if sys.platform.startswith("linux"):
     setup(name="matools",
           version=version,
-          install_requires=['arrow'],
+          install_requires = install_requires,
           packages = ["matools"],
           scripts = ["matool","ma_edit_server","ma_server.py"],
           author = "Lucas Merckelbach",
-          author_email = "lucas.merckelbach@hzg.de",
+          author_email = "lucas.merckelbach@hereon.de",
           url = "dockserver0.hzg.de/software/software.html")
 else:
     import py2exe

@@ -11,7 +11,7 @@ import sys
 import subprocess
 from time import sleep
 
-ConfigPath = os.path.join(os.environ['HOME'],'.matoolrc')
+ConfigPath = os.path.join(os.environ['HOME'],'.config', 'matools', 'matoolrc')
 User = os.environ['USER']
 DefaultEditor = "/usr/bin/gedit"
 

@@ -7,7 +7,7 @@ import arrow
 class Event(object):
     def __init__(self,pattern):
         self.regex=re.compile(pattern)
-        self.timeregex=re.compile("Curr Time.*MT")
+        self.timeregex=re.compile(r"Curr Time.*MT")
         self.timestamp=0
         self.event_timestamp=0
 
