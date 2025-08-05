@@ -90,8 +90,15 @@ class XMLReader:
     def readPacketAttributes(self):
         self.packetAttributes=dict((i,j) for i,j in list(self.packet.attributes.items()))
     def readPacketChildren(self):
-        self.children = dict((k.tagName,list(k.attributes.items())) 
-                             for k in self.packet.childNodes)
+#        self.children = dict((k.tagName,list(k.attributes.items())) 
+#                             for k in self.packet.childNodes)
+        self.children = dict()
+        for k in self.packet.childNodes:
+            try:
+                self.children[k.tagName] = list(k.attributes.items())
+            except AttributeError:
+                print("xmlprotocol.py: childNode has no tagName attibute. Ignoring.")
+
     def childrenByName(self,name):
         return [dict((k,v) for k,v in list(i.attributes.items()))
                 for i in self.packet.getElementsByTagName(name)]
