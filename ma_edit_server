@@ -71,6 +71,7 @@ Defaults={'gliderdirectory':'gliders',
           'logfile':"ma_edit_server.log",
           'smtpserver':'',
           'receivers':'',
+          'email_filters':'',
           'sender':'',
           'dockserver':"141.4.0.159",
           'port':6564,
@@ -80,11 +81,17 @@ DEFAULT_PORT = 9000
 
 
 class EmailerBase(abc.ABC):
-    def __init__(self,receivers=[],sender=None, smtpserver=None, serverport=587):
+    def __init__(self,
+                 receivers=[],
+                 email_filters={},
+                 sender=None,
+                 smtpserver=None,
+                 serverport=587):
         self.sender = sender
         self.smtpserver = smtpserver
         self.serverport = serverport
         self.receivers = receivers
+        self.email_filters = email_filters
         self.status = True
 
     @abc.abstractmethod
@@ -99,9 +106,11 @@ class EmailerBase(abc.ABC):
         self.receivers.append(receiver)
     
 class Emailer(EmailerBase):
-    def __init__(self,receivers=[],sender=None,
+    def __init__(self,receivers=[],
+                 email_filters={},
+                 sender=None,
                  smtpserver=None, serverport=587):
-        super().__init__(receivers, sender, smtpserver, serverport)
+        super().__init__(receivers, email_filters, sender, smtpserver, serverport)
         if not receivers or not sender or not smtpserver:
             self.status=False
         else:
@@ -122,8 +131,20 @@ class Emailer(EmailerBase):
         if s is None:
             sys.stderr.write("Failed to send email(s).\nCould not connect to server.")
             sys.exit(1)
+
+    def filter_receivers(self, glider):
+        filtered_receivers = self.email_filters.keys()
+        receivers = []
+        for r in self.receivers:
+            if r in filtered_receivers:
+                if glider in self.email_filters[r]:
+                    receivers.append(r)
+            else:
+                receivers.append(r)
+        return receivers
         
     def send(self,text,glider):
+        receivers = self.filter_receivers(glider)
         s = self.get_smtp()
         if s is None:
             sys.stderr.write("Failed to send email(s).\nCould not connect to server.")
@@ -131,12 +152,12 @@ class Emailer(EmailerBase):
         msg = MIMEText(text)
         msg['Subject'] = 'Glider log %s'%(glider.capitalize())
         msg['From'] = self.sender
-        msg['To'] = ",".join(self.receivers)
+        msg['To'] = ",".join(receivers)
         try:
             s.ehlo()
             s.starttls()
             s.ehlo()
-            s.sendmail(self.sender, self.receivers, msg.as_string())
+            s.sendmail(self.sender, receivers, msg.as_string())
         except Exception as err:
             sys.stderr.write("Failed to send email(s).\nError was:\n%s\n"%(err))
         else:
@@ -181,7 +202,6 @@ class Ma_Edit(object):
         cnfs=config.read(ConfigFiles)
         sys.stderr.write("Reading configuration file(s):\n")
         sys.stderr.write(f"\t{' : '.join(cnfs)}\n")
-
         if cnfs:
             HD = config.get('Paths','directory')
             try:
@@ -228,6 +248,19 @@ class Ma_Edit(object):
             else:
                 port=int(config.get('Dockserver','port'))
                 senderID=config.get('Dockserver','senderID')
+
+            email_filters={}
+            try:
+                s_filters = config.get('Email', 'filters')
+            except configparser.NoOptionError:
+                pass
+            else:
+                for s in s_filters.split(";"):
+                    # s = "joe@gmail.com:ifm09,ifm16"
+                    _s = s.replace(" ", "") # removes any spaces.
+                    _email, _gliders = _s.split(":")
+                    _gliders=_gliders.replace("[","").replace("]","")
+                    email_filters[_email] = _gliders.split(",")
         else:
             networkport=DEFAULT_PORT
             HD = '.'
@@ -240,6 +273,7 @@ class Ma_Edit(object):
             sender=Defaults['sender']
             receivers=Defaults['receivers']
             dockserver=Defaults['dockserver']
+            email_filters = Defaults['email_filters']
             port=Defaults['port']
             senderID=Defaults['senderID']
             sys.stderr.write("Found no configuration file.\n")
@@ -278,6 +312,7 @@ class Ma_Edit(object):
         self.configuration=config
         if smtpserver:
             self.emailer=Emailer(receivers=receivers,
+                                 email_filters=email_filters,
                                  sender=sender,
                                  smtpserver=smtpserver)
             self.emailer.check_server()
@@ -291,6 +326,7 @@ class Ma_Edit(object):
                             smtp = smtpserver,
                             sender = sender,
                             recv = receivers,
+                            email_filters = email_filters,
                             dockserver = dockserver,
                             port = port)
         self.print_config(config_summary)
@@ -313,6 +349,7 @@ class Ma_Edit(object):
         fd.write(f"smtp server     :{config_summary['smtp']}\n")
         fd.write(f"email sender    :{config_summary['sender']}\n")
         fd.write(f"email recvs     :{config_summary['recv']}\n\n")
+        fd.write(f"email filters   :{config_summary['email_filters']}\n\n")
         
     def __nextFile(self,glider,filename):
         ''' returns next sequential filename '''
@@ -1198,6 +1235,7 @@ if args.f:
     ConfigFiles.append(args.f)
 
 s = Server()
+
 s.syncDirAndQue(interactive = False)
 s.setupDockserverWatchDog(60)
 s.run()

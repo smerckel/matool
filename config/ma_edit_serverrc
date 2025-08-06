@@ -7,6 +7,11 @@ repository=repository
 #[Email]
 #smtpserver=localhost
 #receivers=[]
+#sender=
+
+# You can apply filters, so that anyone listed here, will only get
+# emails for those specific gliders. The format is strict.
+#filters=joe@gmail.com:[ifm09,ifm16];jane@gmail.com:[ifm09,ifm16]
 
 [Dockserver]
 dockserver=localhost
