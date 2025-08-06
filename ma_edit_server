@@ -250,17 +250,14 @@ class Ma_Edit(object):
                 senderID=config.get('Dockserver','senderID')
 
             email_filters={}
-            try:
-                s_filters = config.get('Email', 'filters')
-            except configparser.NoOptionError:
-                pass
-            else:
-                for s in s_filters.split(";"):
-                    # s = "joe@gmail.com:ifm09,ifm16"
-                    _s = s.replace(" ", "") # removes any spaces.
-                    _email, _gliders = _s.split(":")
-                    _gliders=_gliders.replace("[","").replace("]","")
-                    email_filters[_email] = _gliders.split(",")
+            if config.has_section("EmailFilters"):
+                for recv in receivers:
+                    try:
+                        _gliders = config.get("EmailFilters", recv)
+                    except configparser.NoOptionError:
+                        pass
+                    else:
+                        email_filters[recv] = _gliders.split(",")
         else:
             networkport=DEFAULT_PORT
             HD = '.'
