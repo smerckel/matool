@@ -272,7 +272,33 @@ class Ma_Edit_Log_Client(Ma_Edit_Client):
         blocks.reverse()
         txt=reduce(lambda x,y:x+y,blocks,[""])
         return "\n".join(txt)
-        
+    
+class Ma_Edit_Autolog_Client(Ma_Edit_Log_Client):
+    """ Class to write messages in glider logs automatically, by passing the editor."""
+    def __init__(self,glider,user,
+                 host='localhost',port=9000,client_options=["", ""]):
+        super().__init__(glider, user, host, port, client_options)
+
+    def edit(self,mesg, remote=False):
+        self.connect()
+        ticket,content,revision =self.requestFile(remote)
+        self.close()
+        content=self.pre_edit(content)
+        r=xmlprotocol.ABORT
+        self.connect()
+        self.xml_returnfile.add_content(ticket, mesg+"\n"+content)
+        msg = self.xml_returnfile()
+        self.write(msg)
+        answer=self.readlines()
+        r = xmlprotocol.XMLReader()
+        r.digest(answer)
+        content = r.packet.getElementsByTagName('result')[0]
+        d = dict((k,v) for k,v in r.children['result'])
+        r = int(d['accept'])
+        self.close()
+        return r,revision
+    
+    
 class Ma_Edit_Import(Client):
     def __init__(self,glider,user,
                  host='localhost',port=9000):
